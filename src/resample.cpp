@@ -359,46 +359,10 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
                           std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
                           VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi)
 {
-    /*
-    // Not supported by VapourSynth
-    if (srcSampleType == SampleType::Int8)
-    {
-        switch (dstSampleType)
-        {
-        case SampleType::Int8:
-            writeFrameImpl<int8_t, 8, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int16:
-            writeFrameImpl<int8_t, 8, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int24:
-            writeFrameImpl<int8_t, 8, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int32:
-            writeFrameImpl<int8_t, 8, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Float32:
-            writeFrameImpl<int8_t, 8, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Float64:
-            writeFrameImpl<int8_t, 8, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        default:
-            break;
-        }
-        return;
-    }
-    */
-
     if (srcSampleType == SampleType::Int16)
     {
         switch (dstSampleType)
         {
-        /*
-        case SampleType::Int8:
-            writeFrameImpl<int16_t, 16, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         case SampleType::Int16:
             writeFrameImpl<int16_t, 16, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
@@ -411,11 +375,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
         case SampleType::Float32:
             writeFrameImpl<int16_t, 16, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
-        /*
-        case SampleType::Float64:
-            writeFrameImpl<int16_t, 16, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         default:
             break;
         }
@@ -426,11 +385,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
     {
         switch (dstSampleType)
         {
-        /*
-        case SampleType::Int8:
-            writeFrameImpl<int32_t, 24, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         case SampleType::Int16:
             writeFrameImpl<int32_t, 24, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
@@ -443,11 +397,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
         case SampleType::Float32:
             writeFrameImpl<int32_t, 24, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
-        /*
-        case SampleType::Float64:
-            writeFrameImpl<int32_t, 24, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         default:
             break;
         }
@@ -458,11 +407,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
     {
         switch (dstSampleType)
         {
-        /*
-        case SampleType::Int8:
-            writeFrameImpl<int32_t, 32, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         case SampleType::Int16:
             writeFrameImpl<int32_t, 32, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
@@ -475,11 +419,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
         case SampleType::Float32:
             writeFrameImpl<int32_t, 32, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
-        /*
-        case SampleType::Float64:
-            writeFrameImpl<int32_t, 32, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         default:
             break;
         }
@@ -490,11 +429,6 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
     {
         switch (dstSampleType)
         {
-        /*
-        case SampleType::Int8:
-            writeFrameImpl<float, 0, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         case SampleType::Int16:
             writeFrameImpl<float, 0, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
@@ -507,47 +441,11 @@ void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamp
         case SampleType::Float32:
             writeFrameImpl<float, 0, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
             break;
-        /*
-        case SampleType::Float64:
-            writeFrameImpl<float, 0, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        */
         default:
             break;
         }
         return;
     }
-
-    /*
-    // Not supported by VapourSynth
-    if (srcSampleType == SampleType::Float64)
-    {
-        switch (dstSampleType)
-        {
-        case SampleType::Int8:
-            writeFrameImpl<double, 0, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int16:
-            writeFrameImpl<double, 0, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int24:
-            writeFrameImpl<double, 0, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Int32:
-            writeFrameImpl<double, 0, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Float32:
-            writeFrameImpl<double, 0, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case SampleType::Float64:
-            writeFrameImpl<double, 0, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        default:
-            break;
-        }
-        return;
-    }
-    */
 }
 
 
@@ -689,6 +587,8 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
+    // sample_type:int:opt;
+    // sample_type_s:data:opt;
     SampleType sampleType = vsmap_st::getOptSampleType("sample_type", "sample_type_s", in, out, vsapi, sampletype::fromAudioFormat(&srcAi->format));
 
     switch (sampleType)
