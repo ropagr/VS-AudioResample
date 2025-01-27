@@ -3,11 +3,11 @@ This is an audio sample rate and sample type converter for VapourSynth utilizing
 
 ## Usage
 ```python
-ares.Resample(audio: anode,
+ares.Resample(audio: vs.AudioNode,
               sample_rate: int = -1,
               sample_type: int = -1,
               sample_type_s: str = None,
-              conv_type: int = 0) -> anode
+              conv_type: int = 0) -> vs.AudioNode
 ```
 
 ### Arguments
