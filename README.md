@@ -1,5 +1,7 @@
 # VapourSynth-AudioResample
-This is an audio sample rate and sample type converter for VapourSynth utilizing [libsamplerate](https://github.com/libsndfile/libsamplerate)
+This is an audio sample rate and sample type converter for VapourSynth utilizing [libsamplerate](https://github.com/libsndfile/libsamplerate).\
+\
+Caveat: be aware that the last audio sample may be muted after resampling (i.e. changing the sample rate); see the warning below
 
 ## Usage
 ```python
@@ -71,9 +73,12 @@ res_audio = vs.core.ares.Resample(audio, sample_rate=resample_rate)
 audio = vs.core.std.AssumeSampleRate(res_audio, samplerate=audio.sample_rate)
 ```
 
+## Warning
+In some cases the last audio sample(s) may be muted after resampling and a warning message will be sent. This can happen because the number of samples coming from libsamplerate is rather unpredictable. So it could cause a slight cracking noise if you want to splice single resampled audio clips.
+
 ## Build from source
-use cmake to configure your preferred build system and run it\
-this will build the dependency libsamplerate as well as this plugin\
+Use cmake to configure your preferred build system and run it.\
+This will build the dependency libsamplerate as well as this plugin\
 e.g. cmake with Ninja:
 ```sh
 # EITHER build with statically linked libsamplerate
