@@ -155,7 +155,8 @@ void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcF
                 srcSample >>= srcBitShift.count;
             }
 
-            dst_sample_t dstSample = utils::convSampleType<src_sample_t, SrcSampleIntBits, dst_sample_t, DstSampleIntBits>(srcSample);
+            double sample = utils::convSampleToDouble<src_sample_t, SrcSampleIntBits>(srcSample);
+            dst_sample_t dstSample = utils::convSampleFromDouble<dst_sample_t, DstSampleIntBits>(sample);
 
             if constexpr (dstBitShift.required)
             {
@@ -206,14 +207,16 @@ int Resample::fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t
 
             for (int s = 0; s < frameSamples; ++s)
             {
-                src_sample_t sample = srcFrmReadPtr[firstFrameSample + s];
+                src_sample_t srcSample = srcFrmReadPtr[firstFrameSample + s];
                 if constexpr (srcBitShift.required)
                 {
                     // only for 24-bit integer samples
-                    sample >>= srcBitShift.count;
+                    srcSample >>= srcBitShift.count;
                 }
 
-                buf[(addedSamples + s) * numChannels + ch] = utils::convSampleType<src_sample_t, SrcSampleIntBits, float, 0>(sample);
+                double sample = utils::convSampleToDouble<src_sample_t, SrcSampleIntBits>(srcSample);
+
+                buf[(addedSamples + s) * numChannels + ch] = utils::convSampleFromDouble<float, 0>(sample);
             }
         }
 
@@ -361,7 +364,7 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
 
         for (int s = 0; s < dstBufSamplesToWrite; ++s)
         {
-            dst_sample_t dstSample = utils::convSampleType<float, 0, dst_sample_t, DstSampleIntBits>(dstBuf[ch + s * numChannels]);
+            dst_sample_t dstSample = utils::convSampleFromDouble<dst_sample_t, DstSampleIntBits>(dstBuf[ch + s * numChannels]);
 
             if constexpr (dstBitShift.required)
             {
