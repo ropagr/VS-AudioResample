@@ -587,8 +587,9 @@ static const VSFrame* VS_CC resampleGetFrame(int dstFrameTotal, int activationRe
 static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VSCore* core, const VSAPI* vsapi)
 {
     // audio:anode
-    VSNode* srcAudio = nullptr;
-    if (!vsmap::getAudioClip("audio", FUNC_NAME, in, out, vsapi, &srcAudio))
+    int err = 0;
+    VSNode* srcAudio = vsapi->mapGetNode(in, "audio", 0, &err);
+    if (err)
     {
         return;
     }
@@ -611,13 +612,7 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
     }
 
     // sample_rate:int:opt
-    int sampleRate;
-    if (!vsmap::getOptInt("sample_rate", FUNC_NAME, in, out, vsapi, &sampleRate, -1))
-    {
-        vsapi->freeNode(srcAudio);
-        return;
-    }
-
+    int sampleRate = vsmap::getOptInt("sample_rate", in, vsapi, -1);
     if (sampleRate <= 0)
     {
         sampleRate = srcAi->sampleRate;
@@ -650,13 +645,7 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
     }
 
     // conv_type:int:opt
-    int convType;
-    if (!vsmap::getOptInt("conv_type", FUNC_NAME, in, out, vsapi, &convType, SRC_SINC_BEST_QUALITY))
-    {
-        vsapi->freeNode(srcAudio);
-        return;
-    }
-
+    int convType = vsmap::getOptInt("conv_type", in, vsapi, SRC_SINC_BEST_QUALITY);
     switch (convType)
     {
     case SRC_SINC_BEST_QUALITY:
