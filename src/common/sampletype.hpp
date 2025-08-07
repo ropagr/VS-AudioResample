@@ -3,32 +3,37 @@
 #ifndef COMMON_SAMPLETYPE_HPP
 #define COMMON_SAMPLETYPE_HPP
 
-#include <cstdint>
+#include <map>
+#include <optional>
 #include <string>
 
 #include "VapourSynth4.h"
 
 namespace common
 {
-    enum SampleType
+    enum class SampleType
     {
-        Int8      = 0,
-        Int16     = 1,
-        Int24     = 2,
-        Int32     = 3,
-        Float32   = 4,
-        Float64   = 5,
-        Unknown   = 6,
+        // signed int, 1 byte, 8 bits
+        Int8,
+        // signed int, 2 bytes, 16 bits
+        Int16,
+        // signed int, 4 bytes, upper 24 bits
+        Int24,
+        // signed int, 4 bytes, 32 bits
+        Int32,
+        // float, 4 byte, 32 bits
+        Float32,
+        // float, 8 byte, 64 bits
+        Float64
     };
 
+    std::map<std::string, SampleType> getStringSampleTypeMap();
 
-    SampleType getSampleTypeFromInt(int s);
+    std::map<std::string, SampleType> getStringVapourSynthSampleTypeMap();
 
-    SampleType getSampleTypeFromString(std::string const &str);
+    void applySampleTypeToAudioFormat(SampleType st, VSAudioFormat& af);
 
-    SampleType getSampleTypeFromAudioFormat(const VSAudioFormat* af);
-
-    void applySampleTypeToAudioFormat(SampleType sampleType, VSAudioFormat* af);
+    std::optional<SampleType> getSampleTypeFromAudioFormat(const VSAudioFormat& af);
 }
 
 #endif // COMMON_SAMPLETYPE_HPP

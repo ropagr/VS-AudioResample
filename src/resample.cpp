@@ -75,9 +75,9 @@ Resample::Resample(VSNode* _srcAudio, const VSAudioInfo* _srcAi, int _dstSampleR
         dstAi.numFrames = vsutils::samplesToFrames(dstAi.numSamples);
     }
 
-    common::applySampleTypeToAudioFormat(dstSampleType, &dstAi.format);
+    common::applySampleTypeToAudioFormat(dstSampleType, dstAi.format);
 
-    srcSampleType = common::getSampleTypeFromAudioFormat(&srcAi->format);
+    srcSampleType = common::getSampleTypeFromAudioFormat(srcAi->format).value();
 
     // buffer more input samples than one output frame actually requires
     // because libsamplerate needs more input samples to resample one full output frame
@@ -597,16 +597,11 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
     const VSAudioInfo* srcAi = vsapi->getAudioInfo(srcAudio);
 
     // check for supported audio format
-    switch (common::getSampleTypeFromAudioFormat(&srcAi->format))
+    auto optInSampleType = common::getSampleTypeFromAudioFormat(srcAi->format);
+    if (!optInSampleType.has_value())
     {
-    case common::SampleType::Int16:
-    case common::SampleType::Int24:
-    case common::SampleType::Int32:
-    case common::SampleType::Float32:
-        // OK
-        break;
-    default:
-        vsapi->mapSetError(out, FUNC_NAME ": audio format not supported");
+        std::string errMsg = std::format("{}: unsupported audio format", FUNC_NAME);
+        vsapi->mapSetError(out, errMsg.c_str());
         vsapi->freeNode(srcAudio);
         return;
     }
@@ -626,20 +621,10 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
-    // sample_type:int:opt
-    // sample_type_s:data:opt
-    common::SampleType sampleType = vsmap::getOptSampleType("sample_type", "sample_type_s", in, out, vsapi, common::getSampleTypeFromAudioFormat(&srcAi->format));
-
-    switch (sampleType)
+    // sample_type:data:opt
+    std::optional<common::SampleType> optOutSampleType = vsmap::getOptVapourSynthSampleTypeFromString("sample_type", FUNC_NAME, in, out, vsapi, optInSampleType.value());
+    if (!optOutSampleType.has_value())
     {
-    case common::SampleType::Int16:
-    case common::SampleType::Int24:
-    case common::SampleType::Int32:
-    case common::SampleType::Float32:
-        // OK
-        break;
-    default:
-        vsapi->mapSetError(out, FUNC_NAME ": sample type not supported");
         vsapi->freeNode(srcAudio);
         return;
     }
@@ -661,7 +646,7 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
-    Resample* data = new Resample(srcAudio, srcAi, sampleRate, sampleType, convType, core, vsapi);
+    Resample* data = new Resample(srcAudio, srcAi, sampleRate, optOutSampleType.value(), convType, core, vsapi);
 
     VSFilterDependency deps[] = {{srcAudio, VSRequestPattern::rpGeneral}};
 
@@ -675,8 +660,7 @@ void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
     vspapi->registerFunction(FUNC_NAME,
                              "audio:anode;"
                              "sample_rate:int:opt;"
-                             "sample_type:int:opt;"
-                             "sample_type_s:data:opt;"
+                             "sample_type:data:opt;"
                              "conv_type:int:opt;",
                              "return:anode;",
                              resampleCreate, nullptr, plugin);
