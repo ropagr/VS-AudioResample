@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef _RESAMPLE_HPP
-#define _RESAMPLE_HPP
+#ifndef RESAMPLE_HPP
+#define RESAMPLE_HPP
 
+#include <cstdint>
 #include <vector>
 
 #include <samplerate.h>
+
 #include "VapourSynth4.h"
 
-#include "sampletype.hpp"
+#include "common/sampletype.hpp"
 
 
 class Resample
 {
 public:
-    Resample(VSNode* srcAudio, const VSAudioInfo* srcAi, int dstSampleRate, SampleType dstSampleType, int convType,
+    Resample(VSNode* srcAudio, const VSAudioInfo* srcAi, int dstSampleRate, common::SampleType dstSampleType, int convType,
              VSCore* core, const VSAPI* vsapi);
 
     VSNode* getSrcAudio();
@@ -42,8 +44,8 @@ private:
 
     const int dstSampleRate;
 
-    SampleType srcSampleType;
-    const SampleType dstSampleType;
+    common::SampleType srcSampleType;
+    const common::SampleType dstSampleType;
 
     // libsamplerate conversion type
     const int convType;
@@ -91,4 +93,4 @@ private:
 
 void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi);
 
-#endif // _RESAMPLE_HPP
+#endif // RESAMPLE_HPP

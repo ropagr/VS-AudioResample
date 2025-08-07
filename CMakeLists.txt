@@ -19,19 +19,22 @@ FetchContent_MakeAvailable(libsamplerate)
 add_library(AudioResample SHARED
     ${CMAKE_SOURCE_DIR}/src/plugin.cpp
     ${CMAKE_SOURCE_DIR}/src/resample.cpp
-    ${CMAKE_SOURCE_DIR}/src/sampletype.cpp
-    ${CMAKE_SOURCE_DIR}/src/vsautils.cpp
-    ${CMAKE_SOURCE_DIR}/src/vsmap.cpp
-    ${CMAKE_SOURCE_DIR}/src/vsmap_st.cpp
     ${CMAKE_SOURCE_DIR}/src/resample.hpp
-    ${CMAKE_SOURCE_DIR}/src/sampletype.hpp
-    ${CMAKE_SOURCE_DIR}/src/vsautils.hpp
-    ${CMAKE_SOURCE_DIR}/src/vsmap.hpp
-    ${CMAKE_SOURCE_DIR}/src/vsmap_st.hpp
+    ${CMAKE_SOURCE_DIR}/src/common/sampletype.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/sampletype.hpp
+    ${CMAKE_SOURCE_DIR}/src/utils/debug.hpp
+    ${CMAKE_SOURCE_DIR}/src/utils/sample.hpp
+    ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap.cpp
+    ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap.hpp
+    ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap_common.cpp
+    ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap_common.hpp
+    ${CMAKE_SOURCE_DIR}/src/vsutils/audio.cpp
+    ${CMAKE_SOURCE_DIR}/src/vsutils/audio.hpp
 )
 
 target_include_directories(AudioResample
     PRIVATE ${CMAKE_SOURCE_DIR}/include/vapoursynth
+            ${CMAKE_SOURCE_DIR}/src
 )
 
 target_compile_features(AudioResample PRIVATE cxx_std_20)

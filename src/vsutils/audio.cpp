@@ -6,13 +6,11 @@
 #include <cstdint>
 #include <limits>
 
-#include "vsautils.hpp"
 #include "VapourSynth4.h"
 
-// Use (void) to silence unused warnings.
-#define assertm(exp, msg) assert(((void)msg, exp))
+#include "utils/debug.hpp"
 
-namespace vsautils
+namespace vsutils
 {
     int samplesToFrames(int64_t samples)
     {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef _VSAUTILS_HPP
-#define _VSAUTILS_HPP
+#ifndef UTILS_SAMPLE_HPP
+#define UTILS_SAMPLE_HPP
 
 #include <algorithm>
 #include <climits>
@@ -10,18 +10,8 @@
 #include <limits>
 #include <type_traits>
 
-#include "VapourSynth4.h"
-
-
-namespace vsautils
+namespace utils
 {
-    int samplesToFrames(int64_t samples);
-
-    // returns the first sample of a frame
-    int64_t frameToSample(int frame);
-
-    int sampleToFrame(int64_t sample);
-
     template <typename sample_t>
     constexpr size_t bitcount = sizeof(sample_t) * CHAR_BIT;
 
@@ -137,4 +127,4 @@ namespace vsautils
     }
 }
 
-#endif // _VSAUTILS_HPP
+#endif // UTILS_SAMPLE_HPP
