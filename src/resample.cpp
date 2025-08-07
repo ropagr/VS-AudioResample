@@ -18,16 +18,9 @@
 #include "vsmap/vsmap.hpp"
 #include "vsmap/vsmap_common.hpp"
 #include "vsutils/audio.hpp"
+#include "vsutils/bitshift.hpp"
 
 #define FUNC_NAME "Resample"
-
-
-// assuming SampleIntBits <= sizeof(sample_t) * CHAR_BIT
-template <typename sample_t, size_t SampleIntBits>
-constexpr size_t numBitShift = sizeof(sample_t) * CHAR_BIT - SampleIntBits;
-
-template <typename sample_t, size_t SampleIntBits>
-constexpr bool needsBitShift = std::is_integral_v<sample_t> && 0 < numBitShift<sample_t, SampleIntBits>;
 
 
 static int64_t convSampleNum(int64_t srcSample, int srcSampleRate, int dstSampleRate)
@@ -143,12 +136,10 @@ template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t,
 void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcFrame, int samples, const VSAPI* vsapi)
 {
     // for 24-bit audio samples stored in int32_t
-    constexpr size_t srcNumBitShift = numBitShift<src_sample_t, SrcSampleIntBits>;
-    constexpr bool srcNeedsBitShift = needsBitShift<src_sample_t, SrcSampleIntBits>;
+    constexpr vsutils::BitShift srcBitShift = vsutils::getSampleBitShift<src_sample_t, SrcSampleIntBits>();
 
     // for 24-bit audio samples stored in int32_t
-    constexpr size_t dstNumBitShift = numBitShift<dst_sample_t, DstSampleIntBits>;
-    constexpr bool dstNeedsBitShift = needsBitShift<dst_sample_t, DstSampleIntBits>;
+    constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
 
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -158,18 +149,18 @@ void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcF
         for (int s = 0; s < samples; ++s)
         {
             src_sample_t srcSample = srcFrameReadPtr[s];
-            if constexpr (srcNeedsBitShift)
+            if constexpr (srcBitShift.required)
             {
                 // only for 24-bit integer samples
-                srcSample >>= srcNumBitShift;
+                srcSample >>= srcBitShift.count;
             }
 
             dst_sample_t dstSample = utils::convSampleType<src_sample_t, SrcSampleIntBits, dst_sample_t, DstSampleIntBits>(srcSample);
 
-            if constexpr (dstNeedsBitShift)
+            if constexpr (dstBitShift.required)
             {
                 // only for 24-bit integer samples
-                dstSample <<= dstNumBitShift;
+                dstSample <<= dstBitShift.count;
             }
 
             dstFrameWritePtr[s] = dstSample;
@@ -188,8 +179,7 @@ int Resample::fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t
                                      std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal, const VSAPI* vsapi)
 {
     // for 24-bit audio samples stored in int32_t
-    constexpr size_t srcNumBitShift = numBitShift<src_sample_t, SrcSampleIntBits>;
-    constexpr bool srcNeedsBitShift = needsBitShift<src_sample_t, SrcSampleIntBits>;
+    constexpr vsutils::BitShift srcBitShift = vsutils::getSampleBitShift<src_sample_t, SrcSampleIntBits>();
 
     // firstSrcFrameTotal might not necessarily be the frame of firstSrcSampleTotal
     int firstSampleFrameTotal = vsutils::sampleToFrame(firstSrcSampleTotal);
@@ -217,10 +207,10 @@ int Resample::fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t
             for (int s = 0; s < frameSamples; ++s)
             {
                 src_sample_t sample = srcFrmReadPtr[firstFrameSample + s];
-                if constexpr (srcNeedsBitShift)
+                if constexpr (srcBitShift.required)
                 {
                     // only for 24-bit integer samples
-                    sample >>= srcNumBitShift;
+                    sample >>= srcBitShift.count;
                 }
 
                 buf[(addedSamples + s) * numChannels + ch] = utils::convSampleType<src_sample_t, SrcSampleIntBits, float, 0>(sample);
@@ -362,8 +352,7 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
     int dstBufSamplesToWrite = dstFrameSamples;
 
     // for 24-bit audio samples stored in int32_t
-    constexpr size_t dstNumBitShift = numBitShift<dst_sample_t, DstSampleIntBits>;
-    constexpr bool dstNeedsBitShift = needsBitShift<dst_sample_t, DstSampleIntBits>;
+    constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
 
     // write resampled data to destination frame
     for (int ch = 0; ch < numChannels; ++ch)
@@ -374,10 +363,10 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
         {
             dst_sample_t dstSample = utils::convSampleType<float, 0, dst_sample_t, DstSampleIntBits>(dstBuf[ch + s * numChannels]);
 
-            if constexpr (dstNeedsBitShift)
+            if constexpr (dstBitShift.required)
             {
                 // only for 24-bit integer samples
-                dstSample <<= dstNumBitShift;
+                dstSample <<= dstBitShift.count;
             }
 
             dstFrmWritePtr[s] = dstSample;
