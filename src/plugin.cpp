@@ -2,6 +2,7 @@
 
 #include "VapourSynth4.h"
 
+#include "config.hpp"
 #include "resample.hpp"
 
 

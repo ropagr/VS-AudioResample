@@ -47,7 +47,7 @@ target_link_libraries(AudioResample samplerate)
 
 target_compile_options(AudioResample
     PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-O2 -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable>
-            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/MD /O2 /W4 /wd4100 /wd4702>
+            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/MD /O2 /W4 /wd4100 /wd4702 /Zc:__cplusplus>
 )
 
 if (WIN32)
