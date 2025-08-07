@@ -23,7 +23,10 @@ add_library(AudioResample SHARED
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.cpp
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/debug.hpp
+    ${CMAKE_SOURCE_DIR}/src/utils/map.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/sample.hpp
+    ${CMAKE_SOURCE_DIR}/src/utils/string.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/string.hpp
     ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap.cpp
     ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap.hpp
     ${CMAKE_SOURCE_DIR}/src/vsmap/vsmap_common.cpp
