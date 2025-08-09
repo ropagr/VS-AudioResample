@@ -1,12 +1,29 @@
 #ifndef UTILS_MATH_HPP
 #define UTILS_MATH_HPP
 
+#include <climits>
 #include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <limits>
+#include <type_traits>
 
 namespace utils
 {
+    template <typename T>
+    constexpr size_t bitwidth = sizeof(T) * CHAR_BIT;
+
+
+    template <typename T, size_t NumBits>
+    requires std::integral<T> && (NumBits <= bitwidth<T>)
+    constexpr T maxInt = static_cast<T>((1LL << (NumBits - 1)) - 1);
+
+
+    template <typename T, size_t NumBits>
+    requires std::integral<T> && (NumBits <= bitwidth<T>)
+    constexpr T minInt = static_cast<T>(-(1LL << (NumBits - 1)));
+
+
     /// this will prevent overflowing when casting a double to float
     /// return: for positive d: a floating point value f with: 0 <= f <= d
     ///         for negative d: a floating point value f with: d <= f <= 0

@@ -4,7 +4,7 @@
 #include <concepts>
 #include <type_traits>
 
-#include "utils/bitops.hpp"
+#include "utils/number.hpp"
 
 namespace vsutils
 {

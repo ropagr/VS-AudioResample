@@ -25,7 +25,6 @@ add_library(AudioResample SHARED
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.cpp
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/array.hpp
-    ${CMAKE_SOURCE_DIR}/src/utils/bitops.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/debug.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/map.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/number.hpp
