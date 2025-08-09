@@ -50,9 +50,28 @@ target_compile_features(AudioResample PRIVATE cxx_std_20)
 target_link_libraries(AudioResample samplerate)
 
 target_compile_options(AudioResample
-    PRIVATE $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-O2 -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable>
-            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/MD /O2 /W4 /wd4100 /wd4702 /Zc:__cplusplus>
+    PRIVATE
+        # Debug flags for GNU C++
+        $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,GNU>>:
+            -g -O0 -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable
+        >
+
+        # Release flags for GNU C++
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,GNU>>:
+            -O2 -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-unused-variable
+        >
+
+        # Debug flags for MSVC C++
+        $<$<AND:$<CONFIG:Debug>,$<COMPILE_LANG_AND_ID:CXX,MSVC>>:
+            /MDd /W4 /Zi /wd4100 /wd4702 /Zc:__cplusplus
+        >
+
+        # Release flags for MSVC C++
+        $<$<AND:$<CONFIG:Release>,$<COMPILE_LANG_AND_ID:CXX,MSVC>>:
+            /MD /O2 /W4 /wd4100 /wd4702 /Zc:__cplusplus
+        >
 )
+
 
 if (WIN32)
     target_link_options(AudioResample
