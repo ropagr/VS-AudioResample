@@ -20,12 +20,15 @@ add_library(AudioResample SHARED
     ${CMAKE_SOURCE_DIR}/src/plugin.cpp
     ${CMAKE_SOURCE_DIR}/src/resample.cpp
     ${CMAKE_SOURCE_DIR}/src/resample.hpp
+    ${CMAKE_SOURCE_DIR}/src/common/overflow.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/overflow.hpp
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.cpp
     ${CMAKE_SOURCE_DIR}/src/common/sampletype.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/array.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/bitops.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/debug.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/map.hpp
+    ${CMAKE_SOURCE_DIR}/src/utils/number.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/sample.hpp
     ${CMAKE_SOURCE_DIR}/src/utils/string.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/string.hpp

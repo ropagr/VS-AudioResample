@@ -13,6 +13,7 @@
 #include "VapourSynth4.h"
 
 #include "resample.hpp"
+#include "common/overflow.hpp"
 #include "common/sampletype.hpp"
 #include "utils/sample.hpp"
 #include "vsmap/vsmap.hpp"
@@ -21,6 +22,10 @@
 #include "vsutils/bitshift.hpp"
 
 #define FUNC_NAME "Resample"
+
+constexpr int DefaultConvType = SRC_SINC_BEST_QUALITY;
+constexpr common::OverflowMode DefaultOverflowMode = common::OverflowMode::Error;
+constexpr common::OverflowLog DefaultOverflowLog = common::OverflowLog::Once;
 
 
 static int64_t convSampleNum(int64_t srcSample, int srcSampleRate, int dstSampleRate)
@@ -53,9 +58,9 @@ static double calcEstRelSrcBufLen(int srcSampleRate, int dstSampleRate)
 
 
 Resample::Resample(VSNode* _srcAudio, const VSAudioInfo* _srcAi, int _dstSampleRate, common::SampleType _dstSampleType,
-                   int _convType, VSCore* core, const VSAPI* vsapi) :
+                   int _convType, common::OverflowMode _overflowMode, common::OverflowLog _overflowLog, VSCore* core, const VSAPI* vsapi) :
     srcAudio(_srcAudio), srcAi(_srcAi), dstSampleRate(_dstSampleRate), dstSampleType(_dstSampleType),
-    convType(_convType), numChannels(_srcAi->format.numChannels)
+    convType(_convType), overflowMode(_overflowMode), overflowLog(_overflowLog), numChannels(_srcAi->format.numChannels)
 {
     // destination audio information
     dstAi = *srcAi;
@@ -133,21 +138,23 @@ void Resample::free(const VSAPI* vsapi)
 
 
 template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcFrame, int samples, const VSAPI* vsapi)
+bool Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, int64_t dstPosFrmStart, const VSFrame* srcFrame, int samples, const common::OverflowContext& ofCtx)
 {
     // for 24-bit audio samples stored in int32_t
     constexpr vsutils::BitShift srcBitShift = vsutils::getSampleBitShift<src_sample_t, SrcSampleIntBits>();
 
     // for 24-bit audio samples stored in int32_t
-    constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
+    //constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
 
     for (int ch = 0; ch < numChannels; ++ch)
     {
-        const src_sample_t* srcFrameReadPtr = reinterpret_cast<const src_sample_t*>(vsapi->getReadPtr(srcFrame, ch));
-        dst_sample_t* dstFrameWritePtr = reinterpret_cast<dst_sample_t*>(vsapi->getWritePtr(dstFrame, ch));
+        const src_sample_t* srcFrameReadPtr = reinterpret_cast<const src_sample_t*>(ofCtx.vsapi->getReadPtr(srcFrame, ch));
+        dst_sample_t* dstFrameWritePtr = reinterpret_cast<dst_sample_t*>(ofCtx.vsapi->getWritePtr(dstFrame, ch));
 
         for (int s = 0; s < samples; ++s)
         {
+            int64_t dstPos = dstPosFrmStart + s;
+
             src_sample_t srcSample = srcFrameReadPtr[s];
             if constexpr (srcBitShift.required)
             {
@@ -156,6 +163,14 @@ void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcF
             }
 
             double sample = utils::convSampleToDouble<src_sample_t, SrcSampleIntBits>(srcSample);
+
+            if (!common::safeWriteSample<dst_sample_t, DstSampleIntBits>(sample, dstFrameWritePtr, s, dstPos, ch, ofCtx, numOverflows))
+            {
+                // overflow and error
+                return false;
+            }
+
+            /*
             dst_sample_t dstSample = utils::convSampleFromDouble<dst_sample_t, DstSampleIntBits>(sample);
 
             if constexpr (dstBitShift.required)
@@ -165,8 +180,10 @@ void Resample::writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcF
             }
 
             dstFrameWritePtr[s] = dstSample;
+            */
         }
     }
+    return true;
 }
 
 
@@ -228,19 +245,20 @@ int Resample::fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t
 
 
 template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
+bool Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
                               int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
                               std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
-                              VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi)
+                              const common::OverflowContext& ofCtx)
 {
     // srcSamplesEnd: no more source samples available if true,
     //                but it does not necessarily mean that this is the last destination frame!
 
+    int64_t dstPosFrmStart = vsutils::frameToFirstSample(dstFrameTotal);
+
     if (srcAi->sampleRate == dstAi.sampleRate && srcFrames.size() == 1)
     {
-        writeFrameNoResamplingImpl<src_sample_t, SrcSampleIntBits, dst_sample_t, DstSampleIntBits>(
-                dstFrame, srcFrames[0], dstFrameSamples, vsapi);
-        return;
+        return writeFrameNoResamplingImpl<src_sample_t, SrcSampleIntBits, dst_sample_t, DstSampleIntBits>(
+                dstFrame, dstPosFrmStart, srcFrames[0], dstFrameSamples, ofCtx);
     }
 
     if (lastDstFrameTotal + 1 == dstFrameTotal)
@@ -255,9 +273,10 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
         {
             // lastConsumedSrcSampleTotal < firstSrcSampleTotal
             // not supposed to happen since we always consume more source samples than needed
-            std::string msg = std::format(FUNC_NAME ": Missing source samples (frame: {}): last consumed source sample: {}, next source sample: {}",
-                                          dstFrameTotal, lastConsumedSrcSampleTotal, firstSrcSampleTotal);
-            vsapi->logMessage(VSMessageType::mtCritical, msg.c_str(), core);
+            std::string msg = std::format("{}: Missing source samples (frame: {}): last consumed source sample: {}, next source sample: {}",
+                                          FUNC_NAME, dstFrameTotal, lastConsumedSrcSampleTotal, firstSrcSampleTotal);
+            ofCtx.vsapi->setFilterError(msg.c_str(), ofCtx.frameCtx);
+            return false;
         }
     }
     else
@@ -278,13 +297,14 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
     {
         // fill source buffer
         int readSamples = fillInterleavedSamples<src_sample_t, SrcSampleIntBits>(
-                srcBuf, srcBufLenInSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcFrames, firstSrcFrameTotal, vsapi);
+                srcBuf, srcBufLenInSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcFrames, firstSrcFrameTotal, ofCtx.vsapi);
 
         if (readSamples != srcSamples)
         {
-            std::string msg = std::format(FUNC_NAME ": Not all requested input samples read (frame: {}): read: {} / {}",
-                                          dstFrameTotal, readSamples, srcSamples);
-            vsapi->logMessage(VSMessageType::mtCritical, msg.c_str(), core);
+            std::string msg = std::format("{}: Not all requested input samples read (frame: {}): read: {} / {}",
+                                          FUNC_NAME, dstFrameTotal, readSamples, srcSamples);
+            ofCtx.vsapi->setFilterError(msg.c_str(), ofCtx.frameCtx);
+            return false;
         }
 
         // resample data
@@ -306,8 +326,8 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
         if (err)
         {
             std::string msg = std::format(FUNC_NAME ": src_process error (frame: {}): {}", dstFrameTotal, src_strerror(err));
-            vsapi->logMessage(VSMessageType::mtCritical, msg.c_str(), core);
-            return;
+            ofCtx.vsapi->setFilterError(msg.c_str(), ofCtx.frameCtx);
+            return false;
         }
 
         lastConsumedSrcSampleTotal = firstSrcSampleTotal + resData.input_frames_used - 1;
@@ -335,7 +355,7 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
                                                     "last {} sample(s) will be muted (this is a known issue, please see the docs for more)",
                                           dstFrameTotal, dstBufSamples, dstFrameSamples, numMissingSamples);
             // only send a warning
-            vsapi->logMessage(VSMessageType::mtWarning, msg.c_str(), core);
+            ofCtx.vsapi->logMessage(VSMessageType::mtWarning, msg.c_str(), ofCtx.core);
         }
         else
         {
@@ -343,7 +363,8 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
             std::string msg = std::format(FUNC_NAME ": src_process (frame: {}): Not enough output samples generated: {} / {}, missing samples: {}",
                                           dstFrameTotal, dstBufSamples, dstFrameSamples, numMissingSamples);
             // this is indeed critical
-            vsapi->logMessage(VSMessageType::mtCritical, msg.c_str(), core);
+            ofCtx.vsapi->setFilterError(msg.c_str(), ofCtx.frameCtx);
+            return false;
         }
 
         // mute missing samples
@@ -355,15 +376,33 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
     int dstBufSamplesToWrite = dstFrameSamples;
 
     // for 24-bit audio samples stored in int32_t
-    constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
+    //constexpr vsutils::BitShift dstBitShift = vsutils::getSampleBitShift<dst_sample_t, DstSampleIntBits>();
 
     // write resampled data to destination frame
     for (int ch = 0; ch < numChannels; ++ch)
     {
-        dst_sample_t* dstFrmWritePtr = reinterpret_cast<dst_sample_t*>(vsapi->getWritePtr(dstFrame, ch));
+        dst_sample_t* dstFrmWritePtr = reinterpret_cast<dst_sample_t*>(ofCtx.vsapi->getWritePtr(dstFrame, ch));
 
         for (int s = 0; s < dstBufSamplesToWrite; ++s)
         {
+            int64_t dstPos = dstPosFrmStart + s;
+
+            /*
+            if (ch == 0 && dstPos == 8)
+            {
+                std::string msg = std::format("{}: Frame: {}, Channel: {}, Pos: {}, Sample: {}", FUNC_NAME, dstFrameTotal, ch, dstPos, dstBuf[ch + s * numChannels]);
+                ofCtx.vsapi->logMessage(VSMessageType::mtInformation, msg.c_str(), ofCtx.core);
+            }
+            */
+
+            if (!common::safeWriteSample<dst_sample_t, DstSampleIntBits>(
+                static_cast<double>(dstBuf[ch + s * numChannels]), dstFrmWritePtr, ch + s * numChannels, dstPos, ch, ofCtx, numOverflows))
+            {
+                // overflow and error
+                return false;
+            }
+
+            /*
             dst_sample_t dstSample = utils::convSampleFromDouble<dst_sample_t, DstSampleIntBits>(dstBuf[ch + s * numChannels]);
 
             if constexpr (dstBitShift.required)
@@ -373,6 +412,7 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
             }
 
             dstFrmWritePtr[s] = dstSample;
+            */
         }
     }
 
@@ -387,100 +427,137 @@ void Resample::writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrame
     dstBufSamples = dstBufSamplesToShift;
 
     lastDstFrameTotal = dstFrameTotal;
+    return true;
 }
 
 
-void Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
+bool Resample::writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
                           int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
                           std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
                           VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi)
 {
-    if (srcSampleType == common::SampleType::Int16)
-    {
-        switch (dstSampleType)
-        {
-        case common::SampleType::Int16:
-            writeFrameImpl<int16_t, 16, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int24:
-            writeFrameImpl<int16_t, 16, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int32:
-            writeFrameImpl<int16_t, 16, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Float32:
-            writeFrameImpl<int16_t, 16, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        default:
-            break;
-        }
-        return;
-    }
+    common::OverflowContext ofCtx =
+        { .mode = overflowMode, .log = overflowLog, .funcName = FUNC_NAME,
+          .frameCtx = frameCtx, .core = core, .vsapi = vsapi };
 
-    if (srcSampleType == common::SampleType::Int24)
+    switch (srcSampleType)
     {
-        switch (dstSampleType)
-        {
-        case common::SampleType::Int16:
-            writeFrameImpl<int32_t, 24, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int24:
-            writeFrameImpl<int32_t, 24, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int32:
-            writeFrameImpl<int32_t, 24, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Float32:
-            writeFrameImpl<int32_t, 24, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        default:
-            break;
-        }
-        return;
-    }
+        case common::SampleType::Int8:
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<int8_t, 8, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<int8_t, 8, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<int8_t, 8, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<int8_t, 8, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<int8_t, 8, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<int8_t, 8, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
 
-    if (srcSampleType == common::SampleType::Int32)
-    {
-        switch (dstSampleType)
-        {
         case common::SampleType::Int16:
-            writeFrameImpl<int32_t, 32, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int24:
-            writeFrameImpl<int32_t, 32, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Int32:
-            writeFrameImpl<int32_t, 32, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        case common::SampleType::Float32:
-            writeFrameImpl<int32_t, 32, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
-        default:
-            break;
-        }
-        return;
-    }
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<int16_t, 16, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<int16_t, 16, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<int16_t, 16, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<int16_t, 16, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<int16_t, 16, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<int16_t, 16, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
 
-    if (srcSampleType == common::SampleType::Float32)
-    {
-        switch (dstSampleType)
-        {
-        case common::SampleType::Int16:
-            writeFrameImpl<float, 0, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
         case common::SampleType::Int24:
-            writeFrameImpl<float, 0, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<int32_t, 24, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<int32_t, 24, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<int32_t, 24, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<int32_t, 24, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<int32_t, 24, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<int32_t, 24, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
+
         case common::SampleType::Int32:
-            writeFrameImpl<float, 0, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<int32_t, 32, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<int32_t, 32, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<int32_t, 32, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<int32_t, 32, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<int32_t, 32, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<int32_t, 32, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
+
         case common::SampleType::Float32:
-            writeFrameImpl<float, 0, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
-            break;
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<float, 0, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<float, 0, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<float, 0, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<float, 0, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<float, 0, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<float, 0, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
+
+        case common::SampleType::Float64:
+            switch (dstSampleType)
+            {
+                case common::SampleType::Int8:
+                    return writeFrameImpl<double, 0, int8_t, 8>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int16:
+                    return writeFrameImpl<double, 0, int16_t, 16>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int24:
+                    return writeFrameImpl<double, 0, int32_t, 24>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Int32:
+                    return writeFrameImpl<double, 0, int32_t, 32>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float32:
+                    return writeFrameImpl<double, 0, float, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                case common::SampleType::Float64:
+                    return writeFrameImpl<double, 0, double, 0>(dstFrame, dstFrameTotal, dstFrameSamples, firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd, srcFrames, firstSrcFrameTotal, ofCtx);
+                default:
+                    return false;
+            }
+
         default:
-            break;
-        }
-        return;
+            return false;
     }
 }
 
@@ -560,16 +637,20 @@ static const VSFrame* VS_CC resampleGetFrame(int dstFrameTotal, int activationRe
 
         VSFrame* dstFrame = vsapi->newAudioFrame(&data->getDstAudioInfo()->format, dstFrameSamples, nullptr, core);
 
-        data->writeFrame(dstFrame, dstFrameTotal, dstFrameSamples,
-                         firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd,
-                         srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
+        bool success = data->writeFrame(dstFrame, dstFrameTotal, dstFrameSamples,
+                                        firstSrcSampleTotal, lastSrcSampleTotal, srcSamplesEnd,
+                                        srcFrames, firstSrcFrameTotal, frameCtx, core, vsapi);
 
         for (int i = 0; i < srcFramesLen; ++i)
         {
             vsapi->freeFrame(srcFrames[i]);
         }
 
-        return dstFrame;
+        if (success)
+        {
+            return dstFrame;
+        }
+        vsapi->freeFrame(dstFrame);
     }
 
     return nullptr;
@@ -622,7 +703,7 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
     }
 
     // conv_type:int:opt
-    int convType = vsmap::getOptInt("conv_type", in, vsapi, SRC_SINC_BEST_QUALITY);
+    int convType = vsmap::getOptInt("conv_type", in, vsapi, DefaultConvType);
     switch (convType)
     {
     case SRC_SINC_BEST_QUALITY:
@@ -638,7 +719,21 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
-    Resample* data = new Resample(srcAudio, srcAi, sampleRate, optOutSampleType.value(), convType, core, vsapi);
+    // overflow:data:opt
+    std::optional<common::OverflowMode> optOverflowMode = vsmap::getOptOverflowModeFromString("overflow", FUNC_NAME, in, out, vsapi, DefaultOverflowMode);
+    if (!optOverflowMode.has_value())
+    {
+        return;
+    }
+
+    // overflow_log:data:opt
+    std::optional<common::OverflowLog> optOverflowLog = vsmap::getOptOverflowLogFromString("overflow_log", FUNC_NAME, in, out, vsapi, DefaultOverflowLog);
+    if (!optOverflowLog.has_value())
+    {
+        return;
+    }
+
+    Resample* data = new Resample(srcAudio, srcAi, sampleRate, optOutSampleType.value(), convType, optOverflowMode.value(), optOverflowLog.value(), core, vsapi);
 
     VSFilterDependency deps[] = {{srcAudio, VSRequestPattern::rpGeneral}};
 
@@ -653,7 +748,9 @@ void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
                              "audio:anode;"
                              "sample_rate:int:opt;"
                              "sample_type:data:opt;"
-                             "conv_type:int:opt;",
+                             "conv_type:int:opt;"
+                             "overflow:data:opt;"
+                             "overflow_log:data:opt;",
                              "return:anode;",
                              resampleCreate, nullptr, plugin);
 }

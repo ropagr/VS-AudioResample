@@ -10,6 +10,7 @@
 
 #include "VapourSynth4.h"
 
+#include "common/overflow.hpp"
 #include "common/sampletype.hpp"
 
 
@@ -17,7 +18,7 @@ class Resample
 {
 public:
     Resample(VSNode* srcAudio, const VSAudioInfo* srcAi, int dstSampleRate, common::SampleType dstSampleType, int convType,
-             VSCore* core, const VSAPI* vsapi);
+             common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSCore* core, const VSAPI* vsapi);
 
     VSNode* getSrcAudio();
 
@@ -31,7 +32,7 @@ public:
 
     void free(const VSAPI* vsapi);
 
-    void writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
+    bool writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
                     int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
                     std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
                     VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi);
@@ -49,6 +50,10 @@ private:
 
     // libsamplerate conversion type
     const int convType;
+
+    common::OverflowMode overflowMode;
+    common::OverflowLog overflowLog;
+    int64_t numOverflows = 0;
 
     // number of channels for convenience; same for source and destination
     const int numChannels;
@@ -78,17 +83,17 @@ private:
 
 
     template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-    void writeFrameNoResamplingImpl(VSFrame* dstFrame, const VSFrame* srcFrame, int samples, const VSAPI* vsapi);
+    bool writeFrameNoResamplingImpl(VSFrame* dstFrame, int64_t dstPosFrmStart, const VSFrame* srcFrame, int samples, const common::OverflowContext& ofCtx);
 
     template <typename sample_t, size_t SampleIntBits>
     int fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal,
                                std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal, const VSAPI* vsapi);
 
     template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-    void writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
+    bool writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
                         int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
                         std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
-                        VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi);
+                        const common::OverflowContext& ofCtx);
 };
 
 void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi);

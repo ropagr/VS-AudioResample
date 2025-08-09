@@ -10,6 +10,7 @@
 #include <type_traits>
 
 #include "utils/bitops.hpp"
+#include "utils/number.hpp"
 
 namespace utils
 {
@@ -113,7 +114,7 @@ namespace utils
             {
                 return clampFloatSample<sample_t>(static_cast<sample_t>(sample));
             }
-            return static_cast<sample_t>(sample);
+            return utils::castToFloatTowardsZero<sample_t>(sample);
         }
     }
 }

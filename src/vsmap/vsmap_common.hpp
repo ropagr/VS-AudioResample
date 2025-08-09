@@ -10,6 +10,7 @@
 
 #include "VapourSynth4.h"
 
+#include "common/overflow.hpp"
 #include "common/sampletype.hpp"
 #include "utils/map.hpp"
 #include "utils/string.hpp"
@@ -66,6 +67,18 @@ namespace vsmap
     {
         return getValueFromStringImpl<T>(varName, logFuncName, in, out, vsapi, strValueMap, std::nullopt);
     }
+
+    /** no error handling needed **/
+    std::optional<common::OverflowMode> getOverflowModeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi);
+
+    /** no error handling needed **/
+    std::optional<common::OverflowMode> getOptOverflowModeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::OverflowMode defaultValue);
+
+    /** no error handling needed **/
+    std::optional<common::OverflowLog> getOverflowLogFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi);
+
+    /** no error handling needed **/
+    std::optional<common::OverflowLog> getOptOverflowLogFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::OverflowLog defaultValue);
 
     /** no error handling needed **/
     std::optional<common::SampleType> getSampleTypeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi);

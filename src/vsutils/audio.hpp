@@ -9,8 +9,14 @@ namespace vsutils
 {
     int samplesToFrames(int64_t samples);
 
-    // returns the first sample of a frame
-    int64_t frameToSample(int frame);
+    int getFrameSampleCount(int frame, int64_t totalSamples);
+
+    // returns the first sample of a frame (inclusive)
+    int64_t frameToFirstSample(int frame);
+
+    // returns the last sample of a frame (exclusive)
+    // or -1 if frame is outside of all samples
+    int64_t frameToLastSample(int frame, int64_t totalSamples);
 
     int sampleToFrame(int64_t sample);
 }
