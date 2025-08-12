@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 
 project(
-    VapourSynth-AudioResample
+    VS-AudioResample
     DESCRIPTION "audio sample rate and sample type converter for VapourSynth"
     VERSION 0.2.0
     LANGUAGES CXX

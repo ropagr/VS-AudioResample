@@ -1,4 +1,4 @@
-# VapourSynth-AudioResample
+# VS-AudioResample
 This is an audio sample rate and sample type converter for VapourSynth utilizing [libsamplerate](https://github.com/libsndfile/libsamplerate).
 
 ## Usage
