@@ -40,7 +40,7 @@ ares.Resample(clip: vs.AudioNode,
     'error'         - raise an error (default)
     'clip'          - clip overflowing samples
     'clip_int_only' - clip overflowing samples only for integer output sample types
-                      i.e. ignore overflowing samples for float output sample types;
+                      i.e. keep overflowing samples for float output sample types;
                       use this with sample_type='f32' if you want to handle overflowing samples
                       afterwards with another filter like AudioGain
     'ignore_float'  - an alias for 'clip_int_only'
@@ -99,10 +99,11 @@ import vapoursynth as vs
 audio = ...
 
 # convert sample rate to 48000 and sample type to 32-bit float
-# overflowing samples will be ignored
+# overflowing samples will be kept
 audio = vs.core.ares.Resample(audio, sample_rate=48000, sample_type='f32', overflow='clip_int_only')
 
-# scale audio samples; choose a factor that prevents overflowing
+# scale audio samples
+# choose a factor that limits the peak value below or to equal 1
 audio = vs.core.std.AudioGain(audio, 0.5)
 
 # optional: convert sample type to integer if needed (e.g. 24-bit)
