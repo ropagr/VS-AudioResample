@@ -7,8 +7,8 @@ ares.Resample(clip: vs.AudioNode,
               sample_rate: int = -1,
               sample_type: str = None,
               conv_type: int = 0,
-              overflow: str = None,
-              overflow_log: str = None
+              overflow: str = 'error',
+              overflow_log: str = 'once'
               ) -> vs.AudioNode
 ```
 
