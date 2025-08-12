@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef UTILS_SAMPLE_HPP
-#define UTILS_SAMPLE_HPP
+#pragma once
 
 #include <algorithm>
 #include <climits>
 #include <cmath>
 #include <concepts>
+#include <cstddef>
 #include <type_traits>
 
 #include "utils/number.hpp"
@@ -117,5 +117,3 @@ namespace utils
         }
     }
 }
-
-#endif // UTILS_SAMPLE_HPP

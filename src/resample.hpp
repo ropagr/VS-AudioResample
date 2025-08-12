@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef RESAMPLE_HPP
-#define RESAMPLE_HPP
+#pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include <samplerate.h>
@@ -17,85 +17,99 @@
 class Resample
 {
 public:
-    Resample(VSNode* srcAudio, const VSAudioInfo* srcAi, int dstSampleRate, common::SampleType dstSampleType, int convType,
-             common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSCore* core, const VSAPI* vsapi);
+    static std::optional<Resample*> newResample(
+            VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType, int resampleType,
+            common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSMap* outMap, const VSAPI* vsapi);
 
-    VSNode* getSrcAudio();
+    VSNode* getInAudio();
 
-    const VSAudioInfo* getSrcAudioInfo();
+    const VSAudioInfo& getInAudioInfo();
 
-    const VSAudioInfo* getDstAudioInfo();
+    const VSAudioInfo& getOutAudioInfo();
 
-    int getDstOverlapSamples();
+    int getInBufLen();
 
-    size_t getSrcBufLengthInSamples();
+    int getOutBufUsed();
+
+    int64_t getTotalUsedInSamples();
+
+    int64_t getTotalGenOutSamples();
+
+    void logOverflowStats(VSCore* core, const VSAPI* vsapi);
 
     void free(const VSAPI* vsapi);
 
-    bool writeFrame(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
-                    int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
-                    std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
+    bool writeFrame(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart, int64_t inPosReadEnd,
+                    const std::vector<const VSFrame*>& inFrms, int inFrmsNumStart,
                     VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi);
 
 private:
-    VSNode* srcAudio;
-    const VSAudioInfo* srcAi;
+    VSNode* inAudio;
+    const VSAudioInfo inAudioInfo;
 
-    VSAudioInfo dstAi;
+    VSAudioInfo outAudioInfo;
 
-    const int dstSampleRate;
+    const int outSampleRate;
 
-    common::SampleType srcSampleType;
-    const common::SampleType dstSampleType;
+    const common::SampleType inSampleType;
+    const common::SampleType outSampleType;
 
-    // libsamplerate conversion type
-    const int convType;
+    const common::OverflowMode overflowMode;
+    const common::OverflowLog overflowLog;
 
-    common::OverflowMode overflowMode;
-    common::OverflowLog overflowLog;
-    int64_t numOverflows = 0;
+    common::OverflowStats overflowStats = { .count = 0, .peak = 0.0 };
 
-    // number of channels for convenience; same for source and destination
+    // number of channels for convenience; same for input and output
     const int numChannels;
 
-    // last processed destination frame
-    // not using -1 as initial value because -1 would indicate that the actual first frame (0)
+    // last processed output frame
+    // *not* using -1 as initial value because -1 would indicate that the actual first frame (0)
     // is a subsequent frame of an already processed frame (-1)
-    int lastDstFrameTotal = -100;
+    int lastOutFrmNum = -10;
 
     // libsamplerate resampler instance
     SRC_STATE* resState;
 
-    // inclusive
-    int64_t lastConsumedSrcSampleTotal = -1;
+    int64_t inPosReadNext = 0;
 
-    // source buffer
-    float* srcBuf = nullptr;
+    // input buffer, channel interleaved samples
+    float* inBuf = nullptr;
     // number of allocated interleaved samples, i.e. one sample of each channel
-    size_t srcBufLenInSamples = 0;
+    int inBufLen = 0;
+    // number of interleaved samples currently stored in inBuf
+    int inBufUsed = 0;
 
-    // destination buffer
-    float* dstBuf = nullptr;
+    // output buffer, channel interleaved samples
+    float* outBuf = nullptr;
     // number of allocated interleaved samples, i.e. one sample of each channel
-    size_t dstBufLenInSamples = 0;
-    // number of interleaved samples currently stored in dstBuf
-    int dstBufSamples = 0;
+    int outBufLen = 0;
+    // number of interleaved samples currently stored in outBuf
+    int outBufUsed = 0;
+
+    int64_t totalUsedInSamples = 0;
+    int64_t totalGenOutSamples = 0;
 
 
-    template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-    bool writeFrameNoResamplingImpl(VSFrame* dstFrame, int64_t dstPosFrmStart, const VSFrame* srcFrame, int samples, const common::OverflowContext& ofCtx);
+    Resample(VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType,
+             common::OverflowMode overflowMode, common::OverflowLog overflowLog, SRC_STATE* resState);
 
-    template <typename sample_t, size_t SampleIntBits>
-    int fillInterleavedSamples(float* buf, size_t bufLenInSamples, int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal,
-                               std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal, const VSAPI* vsapi);
+    template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
+    bool writeFrameNoResampling(VSFrame* outFrame, int64_t outPosFrmStart, int outFrmLen, const VSFrame* inFrame,
+                                const common::OverflowContext& ofCtx);
 
-    template <typename src_sample_t, size_t SrcSampleIntBits, typename dst_sample_t, size_t DstSampleIntBits>
-    bool writeFrameImpl(VSFrame* dstFrame, int dstFrameTotal, int dstFrameSamples,
-                        int64_t firstSrcSampleTotal, int64_t lastSrcSampleTotal, bool srcSamplesEnd,
-                        std::vector<const VSFrame*> const &srcFrames, int firstSrcFrameTotal,
+    template <typename in_sample_t, size_t InIntSampleBits>
+    int fillInterleavedSamples(float* buf, int bufLen, int bufUsed, int64_t inPosReadStart, int64_t inPosReadEnd,
+                               const std::vector<const VSFrame*>& inFrms, int inFrmsNumStart, const VSAPI* vsapi);
+
+    template <typename out_sample_t, size_t OutIntSampleBits>
+    std::optional<int> writeFrameFromInterleavedSamples(VSFrame* outFrm, int64_t outPosFrmStart, int outFrmLen,
+                                                        float* buf, int bufLen, int bufUsed, const common::OverflowContext& ofCtx);
+
+    template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
+    bool writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart, int64_t inPosReadEnd,
+                        const std::vector<const VSFrame*>& inFrms, int inFrmsNumStart,
                         const common::OverflowContext& ofCtx);
 };
 
-void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi);
 
-#endif // RESAMPLE_HPP
+void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi);

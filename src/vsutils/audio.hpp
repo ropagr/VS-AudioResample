@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef VSUTILS_AUDIO_HPP
-#define VSUTILS_AUDIO_HPP
+#pragma once
 
 #include <cstdint>
 
 namespace vsutils
 {
-    int samplesToFrames(int64_t samples);
+    int64_t secondsToSamples(double seconds, int sampleRate);
+
+    double samplesToSeconds(int64_t samples, int sampleRate);
+
+    int64_t secondsToSampleCount(double seconds, int sampleRate);
+
+    double sampleCountToSeconds(int64_t numSamples, int sampleRate);
+
+    int sampleCountToFrames(int64_t samples);
 
     int getFrameSampleCount(int frame, int64_t totalSamples);
+
+    bool isLastFrame(int frame, int64_t totalSamples);
 
     // returns the first sample of a frame (inclusive)
     int64_t frameToFirstSample(int frame);
@@ -20,5 +29,3 @@ namespace vsutils
 
     int sampleToFrame(int64_t sample);
 }
-
-#endif // VSUTILS_AUDIO_HPP

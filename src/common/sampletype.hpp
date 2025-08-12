@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef COMMON_SAMPLETYPE_HPP
-#define COMMON_SAMPLETYPE_HPP
+#pragma once
 
 #include <map>
 #include <optional>
@@ -34,6 +33,6 @@ namespace common
     void applySampleTypeToAudioFormat(SampleType st, VSAudioFormat& af);
 
     std::optional<SampleType> getSampleTypeFromAudioFormat(const VSAudioFormat& af);
-}
 
-#endif // COMMON_SAMPLETYPE_HPP
+    bool isFloatSampleType(SampleType st);
+}

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef VSMAP_VSMAP_HPP
-#define VSMAP_VSMAP_HPP
+#pragma once
 
 #include "VapourSynth4.h"
 
@@ -11,5 +10,3 @@ namespace vsmap
 
     int getOptInt(const char* varName, const VSMap* in, const VSAPI* vsapi, int defaultValue);
 }
-
-#endif // VSMAP_VSMAP_HPP

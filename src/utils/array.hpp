@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef UTILS_ARRAY_HPP
-#define UTILS_ARRAY_HPP
+#pragma once
 
 #include <cstddef>
 #include <string>
@@ -35,5 +34,3 @@ namespace utils
         return result;
     }
 }
-
-#endif // UTILS_ARRAY_HPP

@@ -132,4 +132,17 @@ namespace common
 
         return std::nullopt;
     }
+
+
+    bool isFloatSampleType(SampleType st)
+    {
+        switch (st)
+        {
+            case SampleType::Float32:
+            case SampleType::Float64:
+                return true;
+            default:
+                return false;
+        }
+    }
 }

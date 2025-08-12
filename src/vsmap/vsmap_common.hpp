@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef VSMAP_VSMAP_COMMON_HPP
-#define VSMAP_VSMAP_COMMON_HPP
+#pragma once
 
 #include <format>
 #include <map>
@@ -92,5 +91,3 @@ namespace vsmap
     /** no error handling needed **/
     std::optional<common::SampleType> getOptVapourSynthSampleTypeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::SampleType defaultValue);
 }
-
-#endif // VSMAP_VSMAP_COMMON_HPP

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef UTILS_MAP_HPP
-#define UTILS_MAP_HPP
+#pragma once
 
 #include <map>
 #include <optional>
@@ -47,5 +46,3 @@ namespace utils
         return result;
     }
 }
-
-#endif // UTILS_MAP_HPP

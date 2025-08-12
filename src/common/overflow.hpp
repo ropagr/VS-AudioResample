@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-#ifndef COMMON_OVERFLOW_HPP
-#define COMMON_OVERFLOW_HPP
+#pragma once
 
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <map>
@@ -49,6 +50,18 @@ namespace common
         const VSAPI* vsapi;
     };
 
+
+    struct OverflowStats
+    {
+        int64_t count = 0;
+        double peak = 0.0;
+
+        void addSample(double sample);
+
+        void logVS(const char* funcName, OverflowMode ofMode, bool floatSampleType, VSCore* core, const VSAPI* vsapi);
+    };
+
+
     std::map<std::string, OverflowMode> getStringOverflowModeMap();
 
     std::map<std::string, OverflowLog> getStringOverflowLogMap();
@@ -57,29 +70,66 @@ namespace common
 
     static std::string genOverflowMsg(double sample, int64_t totalPos, int channel, const char* funcName)
     {
-        return std::format("{}: Overflow detected. position: {}, channel: {}, sample: {:.4f}", funcName, totalPos, channel, sample);
+        return std::format("{}: Overflow detected. position: {}, channel: {}, sample: {:.6f}", funcName, totalPos, channel, sample);
     }
 
 
-    static void logOverflow(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, int64_t& numOverflows)
+    template <typename sample_t>
+    requires std::integral<sample_t> || std::floating_point<sample_t>
+    static std::string genOverflowHandlingMsg(const OverflowContext& ofCtx)
+    {
+        switch (ofCtx.mode)
+        {
+            case OverflowMode::Error:
+                return std::format("{}: Exiting with an error.", ofCtx.funcName);
+
+            case OverflowMode::ClipIntOnly:
+                if constexpr (std::is_floating_point_v<sample_t>)
+                {
+                    return std::format("{}: Overflowing samples will *not* be clipped.", ofCtx.funcName);
+                }
+                [[fallthrough]];
+
+            case OverflowMode::Clip:
+                return std::format("{}: Overflowing samples will be clipped.", ofCtx.funcName);
+
+            default:
+                return std::string();
+        }
+    }
+
+
+    template <typename sample_t>
+    requires std::integral<sample_t> || std::floating_point<sample_t>
+    static void logOverflow(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, const OverflowStats& ofStats)
     {
         switch (ofCtx.log)
         {
             case OverflowLog::All:
                 // log all overflowing samples
                 ofCtx.vsapi->logMessage(VSMessageType::mtWarning, genOverflowMsg(sample, totalPos, channel, ofCtx.funcName).c_str(), ofCtx.core);
+
+                if (ofStats.count == 0)
+                {
+                    ofCtx.vsapi->logMessage(VSMessageType::mtInformation, genOverflowHandlingMsg<sample_t>(ofCtx).c_str(), ofCtx.core);
+                }
                 break;
 
             case OverflowLog::Once:
                 // log only the first overflowing sample
-                // compare with 1 because numOverflows was already incremented for this overflow
-                // so we log only if no previous overflow was logged
-                if (numOverflows == 1)
+                if (ofStats.count == 0)
                 {
-                    ofCtx.vsapi->logMessage(VSMessageType::mtWarning, genOverflowMsg(sample, totalPos, channel, ofCtx.funcName).c_str(), ofCtx.core);
+                    bool errorMode = ofCtx.mode == OverflowMode::Error;
 
-                    std::string firstHint = std::format("{}: Only the first overflow will be logged.", ofCtx.funcName);
-                    ofCtx.vsapi->logMessage(VSMessageType::mtWarning, firstHint.c_str(), ofCtx.core);
+                    ofCtx.vsapi->logMessage(errorMode ? VSMessageType::mtCritical : VSMessageType::mtWarning, genOverflowMsg(sample, totalPos, channel, ofCtx.funcName).c_str(), ofCtx.core);
+
+                    ofCtx.vsapi->logMessage(VSMessageType::mtInformation, genOverflowHandlingMsg<sample_t>(ofCtx).c_str(), ofCtx.core);
+
+                    if (!errorMode)
+                    {
+                        std::string firstHint = std::format("{}: Only the first overflow will be logged.", ofCtx.funcName);
+                        ofCtx.vsapi->logMessage(VSMessageType::mtInformation, firstHint.c_str(), ofCtx.core);
+                    }
                 }
                 break;
 
@@ -90,9 +140,12 @@ namespace common
 
 
     template <typename sample_t, size_t SampleIntBits>
-    static std::optional<sample_t> handleOverflow(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, int64_t& numOverflows)
+    requires std::integral<sample_t> || std::floating_point<sample_t>
+    static std::optional<sample_t> handleOverflow(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
-        logOverflow(sample, totalPos, channel, ofCtx, numOverflows);
+        logOverflow<sample_t>(sample, totalPos, channel, ofCtx, ofStats);
+
+        ofStats.addSample(sample);
 
         switch (ofCtx.mode)
         {
@@ -117,14 +170,13 @@ namespace common
 
     // numOverflows will be incremented if an overflow happened
     template <typename sample_t, size_t SampleIntBits>
-    std::optional<sample_t> safeConvertSample(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, int64_t& numOverflows)
+    requires std::integral<sample_t> || std::floating_point<sample_t>
+    std::optional<sample_t> safeConvertSample(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
         if (utils::isSampleOverflowing<double, 0>(sample))
         {
             // sample is overflowing
-            ++numOverflows;
-
-            return handleOverflow<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, numOverflows);
+            return handleOverflow<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, ofStats);
         }
 
         // sample is not overflowing
@@ -133,9 +185,10 @@ namespace common
 
 
     template <typename sample_t, size_t SampleIntBits>
-    bool safeWriteSample(double sample, sample_t* frmPtr, int frmPtrPos, int64_t totalPos, int channel, const OverflowContext& ofCtx, int64_t& numOverflows)
+    requires std::integral<sample_t> || std::floating_point<sample_t>
+    bool safeWriteSample(double sample, sample_t* frmPtr, int frmPtrPos, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
-        if (auto optSample = safeConvertSample<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, numOverflows))
+        if (auto optSample = safeConvertSample<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, ofStats))
         {
             sample_t outSample = optSample.value();
 
@@ -154,5 +207,3 @@ namespace common
         return false;
     }
 }
-
-#endif // COMMON_OVERFLOW_HPP

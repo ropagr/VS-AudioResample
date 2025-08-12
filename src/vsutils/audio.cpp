@@ -12,16 +12,22 @@
 
 namespace vsutils
 {
-    int samplesToFrames(int64_t samples)
+    int64_t secondsToSamples(double seconds, int sampleRate)
     {
-        assertm(0 <= samples, "negative samples");
+        return static_cast<int64_t>(std::round(seconds * static_cast<double>(sampleRate)));
+    }
 
-        if (samples == 0)
-        {
-            return 0;
-        }
+    double samplesToSeconds(int64_t samples, int sampleRate)
+    {
+        return static_cast<double>(samples) / static_cast<double>(sampleRate);
+    }
 
-        int64_t frames = ((samples - 1) / VS_AUDIO_FRAME_SAMPLES) + 1;
+    // returns the number of frames required to hold the specfified amount of samples
+    int sampleCountToFrames(int64_t numSamples)
+    {
+        assertm(0 <= numSamples, "negative samples");
+
+        int64_t frames = ((numSamples - 1) / VS_AUDIO_FRAME_SAMPLES) + 1;
 
         assertm(frames <= std::numeric_limits<int>::max(), "frames out of int range");
 
@@ -33,7 +39,7 @@ namespace vsutils
     {
         assertm(0 <= frame, "negative frame");
 
-        int totalFrames = samplesToFrames(totalSamples);
+        int totalFrames = sampleCountToFrames(totalSamples);
 
         assertm(frame < totalFrames, "frame out of range");
 
@@ -49,6 +55,14 @@ namespace vsutils
         }
 
         return VS_AUDIO_FRAME_SAMPLES;
+    }
+
+
+    bool isLastFrame(int frame, int64_t totalSamples)
+    {
+        assertm(0 <= frame, "negative frame");
+
+        return frame == sampleCountToFrames(totalSamples) - 1;
     }
 
 

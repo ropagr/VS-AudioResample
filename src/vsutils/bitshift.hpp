@@ -1,7 +1,7 @@
-#ifndef VSUTILS_BITSHIFT_HPP
-#define VSUTILS_BITSHIFT_HPP
+#pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <type_traits>
 
 #include "utils/number.hpp"
@@ -23,5 +23,3 @@ namespace vsutils
                  .required = std::is_integral_v<sample_t> && 0 < bitShiftNum };
     }
 }
-
-#endif // VSUTILS_BITSHIFT_HPP

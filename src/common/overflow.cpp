@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+#include <algorithm>
 #include <format>
 #include <map>
 #include <string>
@@ -41,12 +42,41 @@ namespace common
         return utils::constStringViewPairArrayToStringMap(strOverflowLogPairs);
     }
 
-    void logNumOverflows(int64_t numOverflows, const char* funcName, VSCore* core, const VSAPI* vsapi)
+
+    void OverflowStats::addSample(double sample)
     {
-        if (0 < numOverflows)
+        ++count;
+
+        double absSample = std::abs(sample);
+        if (peak < absSample)
         {
-            std::string warnMsg = std::format("{}: {} sample overflows detected", funcName, numOverflows);
-            vsapi->logMessage(VSMessageType::mtWarning, warnMsg.c_str(), core);
+            peak = absSample;
+        }
+    }
+
+    void OverflowStats::logVS(const char* funcName, OverflowMode ofMode, bool floatSampleType, VSCore* core, const VSAPI* vsapi)
+    {
+        std::string logMsg;
+
+        switch (ofMode)
+        {
+            case OverflowMode::ClipIntOnly:
+                if (floatSampleType)
+                {
+                    logMsg = std::format("{}: {} sample overflows detected. Peak: {:.6f}", funcName, count, peak);
+                    vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), core);
+                    break;
+                }
+                [[fallthrough]];
+
+            case OverflowMode::Clip:
+                logMsg = std::format("{}: {} sample overflows detected. Peak: {:.6f}. All overflows clipped.", funcName, count, peak);
+                vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), core);
+                break;
+
+            case OverflowMode::Error:
+            default:
+                break;
         }
     }
 }

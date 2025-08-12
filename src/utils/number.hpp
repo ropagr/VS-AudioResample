@@ -1,5 +1,6 @@
-#ifndef UTILS_MATH_HPP
-#define UTILS_MATH_HPP
+// SPDX-License-Identifier: MIT
+
+#pragma once
 
 #include <climits>
 #include <cmath>
@@ -59,5 +60,3 @@ namespace utils
         }
     }
 }
-
-#endif // UTILS_MATH_HPP
