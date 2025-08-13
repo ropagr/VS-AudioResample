@@ -156,8 +156,15 @@ namespace common
                 ofCtx.vsapi->setFilterError(genOverflowMsg(sample, totalPos, channel, ofCtx.funcName).c_str(), ofCtx.frameCtx);
                 return std::nullopt;
 
-            case OverflowMode::ClipInt:
             case OverflowMode::KeepFloat:
+                if constexpr (std::is_integral_v<sample_t>)
+                {
+                    ofCtx.vsapi->setFilterError(std::format("{}: Overflow detected. keep_float cannot be used with integer sample types", ofCtx.funcName).c_str(), ofCtx.frameCtx);
+                    return std::nullopt;
+                }
+                [[fallthrough]];
+
+            case OverflowMode::ClipInt:
                 if constexpr (std::is_floating_point_v<sample_t>)
                 {
                     // do not clamp float
