@@ -142,7 +142,7 @@ namespace common
     }
 
 
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     static std::optional<sample_t> handleOverflow(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
@@ -161,42 +161,42 @@ namespace common
                 if constexpr (std::is_floating_point_v<sample_t>)
                 {
                     // do not clamp float
-                    return utils::convSampleFromDouble<sample_t, SampleIntBits>(sample, false);
+                    return utils::convSampleFromDouble<sample_t, IntSampleBits>(sample, false);
                 }
                 [[fallthrough]];
 
             case OverflowMode::Clip:
-                return utils::convSampleFromDouble<sample_t, SampleIntBits>(sample, true);
+                return utils::convSampleFromDouble<sample_t, IntSampleBits>(sample, true);
         }
         return std::nullopt;
     }
 
 
     // numOverflows will be incremented if an overflow happened
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     std::optional<sample_t> safeConvertSample(double sample, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
         if (utils::isSampleOverflowing<double, 0>(sample))
         {
             // sample is overflowing
-            return handleOverflow<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, ofStats);
+            return handleOverflow<sample_t, IntSampleBits>(sample, totalPos, channel, ofCtx, ofStats);
         }
 
         // sample is not overflowing
-        return utils::convSampleFromDouble<sample_t, SampleIntBits>(sample);
+        return utils::convSampleFromDouble<sample_t, IntSampleBits>(sample);
     }
 
 
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     bool safeWriteSample(double sample, sample_t* frmPtr, int frmPtrPos, int64_t totalPos, int channel, const OverflowContext& ofCtx, OverflowStats& ofStats)
     {
-        if (auto optSample = safeConvertSample<sample_t, SampleIntBits>(sample, totalPos, channel, ofCtx, ofStats))
+        if (auto optSample = safeConvertSample<sample_t, IntSampleBits>(sample, totalPos, channel, ofCtx, ofStats))
         {
             sample_t outSample = optSample.value();
 
-            constexpr vsutils::BitShift outBitShift = vsutils::getSampleBitShift<sample_t, SampleIntBits>();
+            constexpr vsutils::BitShift outBitShift = vsutils::getSampleBitShift<sample_t, IntSampleBits>();
 
             if constexpr (outBitShift.required)
             {

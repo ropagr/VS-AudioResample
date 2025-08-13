@@ -13,13 +13,13 @@
 
 namespace utils
 {
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     bool isSampleOverflowing(sample_t sample)
     {
         if constexpr (std::is_integral_v<sample_t>)
         {
-            return sample == utils::minInt<sample_t, SampleIntBits>;
+            return sample == utils::minInt<sample_t, IntSampleBits>;
         }
 
         if constexpr (std::is_floating_point_v<sample_t>)
@@ -30,13 +30,13 @@ namespace utils
 
 
     // minInt gets clamped to -maxInt
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t>
     sample_t clampSymIntSample(sample_t sample)
     {
-        if (sample == utils::minInt<sample_t, SampleIntBits>)
+        if (sample == utils::minInt<sample_t, IntSampleBits>)
         {
-            return -utils::maxInt<sample_t, SampleIntBits>;
+            return -utils::maxInt<sample_t, IntSampleBits>;
         }
         return sample;
     }
@@ -50,7 +50,7 @@ namespace utils
     }
 
 
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     sample_t castSample(double sample)
     {
@@ -58,8 +58,8 @@ namespace utils
         {
             return static_cast<sample_t>(
                 std::clamp(std::round(sample),
-                           static_cast<double>(-utils::maxInt<sample_t, SampleIntBits>),
-                           static_cast<double>(utils::maxInt<sample_t, SampleIntBits>)));
+                           static_cast<double>(-utils::maxInt<sample_t, IntSampleBits>),
+                           static_cast<double>(utils::maxInt<sample_t, IntSampleBits>)));
         }
 
         if constexpr (std::is_floating_point_v<sample_t>)
@@ -74,15 +74,15 @@ namespace utils
      * integer will be clamped to symmetrical range
      * no clamping for float types
      */
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     double convSampleToDouble(sample_t sample)
     {
         if constexpr (std::is_integral_v<sample_t>)
         {
-            sample = clampSymIntSample<sample_t, SampleIntBits>(sample);
+            sample = clampSymIntSample<sample_t, IntSampleBits>(sample);
 
-            return static_cast<double>(sample) / static_cast<double>(utils::maxInt<sample_t, SampleIntBits>);
+            return static_cast<double>(sample) / static_cast<double>(utils::maxInt<sample_t, IntSampleBits>);
         }
 
         if constexpr (std::is_floating_point_v<sample_t>)
@@ -96,7 +96,7 @@ namespace utils
      * convert a double sample to any integer or floating point type
      * optional clamping for float types (default: false)
      */
-    template <typename sample_t, size_t SampleIntBits>
+    template <typename sample_t, size_t IntSampleBits>
     requires std::integral<sample_t> || std::floating_point<sample_t>
     sample_t convSampleFromDouble(double sample, bool clampFloat = false)
     {
@@ -104,7 +104,7 @@ namespace utils
         {
             sample = clampFloatSample<double>(sample);
 
-            return static_cast<sample_t>(std::round(sample * static_cast<double>(utils::maxInt<sample_t, SampleIntBits>)));
+            return static_cast<sample_t>(std::round(sample * static_cast<double>(utils::maxInt<sample_t, IntSampleBits>)));
         }
 
         if constexpr (std::is_floating_point_v<sample_t>)
