@@ -27,6 +27,8 @@ public:
 
     const VSAudioInfo& getOutAudioInfo();
 
+    bool isPassthrough();
+
     int getInBufLen();
 
     int getOutBufUsed();

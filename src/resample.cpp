@@ -140,6 +140,12 @@ const VSAudioInfo& Resample::getOutAudioInfo()
 }
 
 
+bool Resample::isPassthrough()
+{
+    return inSampleType == outSampleType && inAudioInfo.sampleRate == outAudioInfo.sampleRate;
+}
+
+
 int Resample::getInBufLen()
 {
     return inBufLen;
@@ -660,6 +666,8 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
 {
     Resample* data = static_cast<Resample*>(instanceData);
 
+    bool passthrough = data->isPassthrough();
+
     // inclusive
     int64_t outPosFrmStart = vsutils::frameToFirstSample(outFrmNum);
 
@@ -697,6 +705,12 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
 
     if (activationReason == VSActivationReason::arInitial)
     {
+        if (passthrough)
+        {
+            vsapi->requestFrameFilter(outFrmNum, data->getInAudio(), frameCtx);
+            return nullptr;
+        }
+
         for (int i = 0; i < inFrmsSize; ++i)
         {
             vsapi->requestFrameFilter(inFrmsNumStart + i, data->getInAudio(), frameCtx);
@@ -707,6 +721,11 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
 
     if (activationReason == VSActivationReason::arAllFramesReady)
     {
+        if (passthrough)
+        {
+            return vsapi->getFrameFilter(outFrmNum, data->getInAudio(), frameCtx);
+        }
+
         std::vector<const VSFrame*> inFrms;
         inFrms.reserve(inFrmsSize);
 
