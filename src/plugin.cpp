@@ -8,7 +8,7 @@
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
 {
-    vspapi->configPlugin("com.ropagr.ares", "ares", "audio sample rate and sample type converter", VS_MAKE_VERSION(0, 2), VAPOURSYNTH_API_VERSION, 0, plugin);
+    vspapi->configPlugin("com.ropagr.ares", "ares", "audio sample rate and sample type converter", VS_MAKE_VERSION(0, 3), VAPOURSYNTH_API_VERSION, 0, plugin);
 
     resampleInit(plugin, vspapi);
 }
