@@ -830,6 +830,14 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
+    if (optOverflowMode.value() == common::OverflowMode::KeepFloat && !common::isFloatSampleType(optOutSampleType.value()))
+    {
+        std::string errMsg = std::format("{}: cannot use 'keep_float' overflow mode with an integer sample type", FuncName);
+        vsapi->mapSetError(out, errMsg.c_str());
+        vsapi->freeNode(inAudio);
+        return;
+    }
+
     // overflow_log:data:opt
     std::optional<common::OverflowLog> optOverflowLog = vsmap::getOptOverflowLogFromString("overflow_log", FuncName, in, out, vsapi, DefaultOverflowLog);
     if (!optOverflowLog.has_value())

@@ -24,8 +24,10 @@ namespace common
         Error,
         // clip all sample types
         Clip,
-        // clip integer sample types only, ignore float (i.e. let float overflow)
-        ClipIntOnly,
+        // clip integer sample types only, keep float (i.e. let float overflow)
+        ClipInt,
+        // keep float, raise an error if clip is not float
+        KeepFloat,
     };
 
 
@@ -83,7 +85,8 @@ namespace common
             case OverflowMode::Error:
                 return std::format("{}: Exiting with an error.", ofCtx.funcName);
 
-            case OverflowMode::ClipIntOnly:
+            case OverflowMode::ClipInt:
+            case OverflowMode::KeepFloat:
                 if constexpr (std::is_floating_point_v<sample_t>)
                 {
                     return std::format("{}: Overflowing samples will *not* be clipped.", ofCtx.funcName);
@@ -153,7 +156,8 @@ namespace common
                 ofCtx.vsapi->setFilterError(genOverflowMsg(sample, totalPos, channel, ofCtx.funcName).c_str(), ofCtx.frameCtx);
                 return std::nullopt;
 
-            case OverflowMode::ClipIntOnly:
+            case OverflowMode::ClipInt:
+            case OverflowMode::KeepFloat:
                 if constexpr (std::is_floating_point_v<sample_t>)
                 {
                     // do not clamp float

@@ -16,10 +16,10 @@ namespace common
 {
     constexpr std::pair<std::string_view, OverflowMode> strOverflowModePairs[] =
     {
-        { "error",         OverflowMode::Error },
-        { "clip",          OverflowMode::Clip },
-        { "clip_int_only", OverflowMode::ClipIntOnly },
-        { "ignore_float",  OverflowMode::ClipIntOnly },
+        { "error",      OverflowMode::Error },
+        { "clip",       OverflowMode::Clip },
+        { "clip_int",   OverflowMode::ClipInt },
+        { "keep_float", OverflowMode::KeepFloat },
     };
 
 
@@ -60,7 +60,8 @@ namespace common
 
         switch (ofMode)
         {
-            case OverflowMode::ClipIntOnly:
+            case OverflowMode::ClipInt:
+            case OverflowMode::KeepFloat:
                 if (floatSampleType)
                 {
                     logMsg = std::format("{}: {} sample overflows detected. Peak: {:.6f}", funcName, count, peak);

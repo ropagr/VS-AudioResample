@@ -12,9 +12,7 @@ ares.Resample(clip: vs.AudioNode,
               ) -> vs.AudioNode
 ```
 
-### Arguments
-
-*clip* - audio input clip (any format)
+*clip* - input audio clip (any format)
 
 *sample_rate* - new sample rate (e.g. 16000, 44100, 48000, ...); same as input clip if negative; default: -1
 
@@ -37,16 +35,20 @@ ares.Resample(clip: vs.AudioNode,
 
 *overflow* - sample overflow handling; default: 'error'
 ```text
-    'error'         - raise an error (default)
-    'clip'          - clip overflowing samples
-    'clip_int_only' - clip overflowing samples only for integer output sample types
-                      i.e. keep overflowing samples for float output sample types;
-                      use this with sample_type='f32' if you want to handle overflowing samples
-                      afterwards with another filter like AudioGain
-    'ignore_float'  - an alias for 'clip_int_only'
+    'error'      - raise an error (default)
+    'clip'       - clip overflowing samples (all types)
+    'clip_int'   - clip overflowing samples for integer output sample types
+                   keep overflowing samples for float output sample types
+    'keep_float' - keep overflowing samples for float output sample types
+                   raise an error if output sample type is not float
 ```
 
-**Note**: overflowing samples are always clipped for integer sample types
+To properly handle overflows the clip should be converted to a float sample type ('f32'), if not already.
+
+⚠️ Overflowing samples of integer sample types (output) are always clipped (disruptive), or they raise an error
+
+Use `overflow='keep_float'` for float output sample types to leave overflowing samples unchanged.  
+Then call a scaling function like `std.AudioGain` that scales the peak sample value below or to equal 1.0 (see [Example 3](#example-3))
 
 
 *overflow_log* - sample overflow logging; default: 'once'
@@ -56,7 +58,7 @@ ares.Resample(clip: vs.AudioNode,
     'none' - do not log any sample overflows
 ```
 
-**Note**: a summary of all overflowing samples will be logged at the end of the process (if any)
+**Note**: a summary of all overflowing samples will be logged at the end of each function (if any)
 
 ### Example 1
 
@@ -99,14 +101,14 @@ import vapoursynth as vs
 audio = ...
 
 # convert sample rate to 48000 and sample type to 32-bit float
-# overflowing samples will be kept
-audio = vs.core.ares.Resample(audio, sample_rate=48000, sample_type='f32', overflow='clip_int_only')
+# leave possible overflowing samples unchanged with 'keep_float'
+audio = vs.core.ares.Resample(audio, sample_rate=48000, sample_type='f32', overflow='keep_float')
 
 # scale audio samples
 # choose a factor that limits the peak value below or to equal 1
 audio = vs.core.std.AudioGain(audio, 0.5)
 
-# optional: convert sample type to integer if needed (e.g. 24-bit)
+# optional: convert sample type back to integer if needed (e.g. 24-bit)
 audio = vs.core.ares.Resample(audio, sample_type='i24')
 ```
 
@@ -129,6 +131,7 @@ cmake -G Ninja -B ./build-ninja -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Releas
 
 ninja -C ./build-ninja
 ```
+
 
 ## License
 
