@@ -152,24 +152,6 @@ int Resample::getInBufLen()
 }
 
 
-int Resample::getOutBufUsed()
-{
-    return outBufUsed;
-}
-
-
-int64_t Resample::getTotalUsedInSamples()
-{
-    return totalUsedInSamples;
-}
-
-
-int64_t Resample::getTotalGenOutSamples()
-{
-    return totalGenOutSamples;
-}
-
-
 void Resample::logOverflowStats(VSCore* core, const VSAPI* vsapi)
 {
     if (0 < overflowStats.count)

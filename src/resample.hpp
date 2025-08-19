@@ -31,12 +31,6 @@ public:
 
     int getInBufLen();
 
-    int getOutBufUsed();
-
-    int64_t getTotalUsedInSamples();
-
-    int64_t getTotalGenOutSamples();
-
     void logOverflowStats(VSCore* core, const VSAPI* vsapi);
 
     void logProcDone(VSCore* core, const VSAPI* vsapi);
