@@ -39,6 +39,8 @@ public:
 
     void logOverflowStats(VSCore* core, const VSAPI* vsapi);
 
+    void logProcDone(VSCore* core, const VSAPI* vsapi);
+
     void free(const VSAPI* vsapi);
 
     bool writeFrame(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart, int64_t inPosReadEnd,

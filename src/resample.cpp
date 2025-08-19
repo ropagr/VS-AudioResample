@@ -179,6 +179,26 @@ void Resample::logOverflowStats(VSCore* core, const VSAPI* vsapi)
 }
 
 
+void Resample::logProcDone(VSCore* core, const VSAPI* vsapi)
+{
+    if (0 < outBufUsed)
+    {
+        // this can happen because of issues with libsamplerate
+        // https://github.com/libsndfile/libsamplerate/issues/206
+        // https://github.com/libsndfile/libsamplerate/issues/175
+        std::string logMsg = std::format("{}: Done. {} unused output sample(s) after the last frame",
+                                         FuncName, outBufUsed);
+        vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), core);
+    }
+
+    /*
+    std::string logMsg2 = std::format("{}: Done. used input samples: {}, generated output samples: {}",
+                                     FuncName, totalUsedInSamples, totalGenOutSamples);
+    vsapi->logMessage(VSMessageType::mtInformation, logMsg2.c_str(), core);
+    */
+}
+
+
 void Resample::free(const VSAPI* vsapi)
 {
     vsapi->freeNode(inAudio);
@@ -489,12 +509,14 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         // check if we have enough samples for the output frame now
         if (outBufUsed < outFrmLen)
         {
-            // not supposed to happen
+            // this can happen because of issues with libsamplerate
+            // https://github.com/libsndfile/libsamplerate/issues/206
+            // https://github.com/libsndfile/libsamplerate/issues/175
+
             missingSamples = outFrmLen - outBufUsed;
 
-            std::string logMsg = std::format("{}: Not enough output samples generated for the last frame: {} / {}. "
-                                             "Last {} sample(s) will be muted.",
-                                             FuncName, outFrmNum, outAudioInfo.numFrames - 1, missingSamples);
+            std::string logMsg = std::format("{}: Done. Not enough output samples generated for the last frame {}. Last {} sample(s) will be muted.",
+                                             FuncName, outFrmNum, missingSamples);
             ofCtx.vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), ofCtx.core);
 
             // mute missing samples
@@ -747,22 +769,9 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
         if (outFrmNum == data->getOutAudioInfo().numFrames - 1)
         {
             // last frame
-            if (0 < data->getOutBufUsed())
-            {
-                // last frame: some output samples are unused
-                std::string logMsg = std::format("{}: {} unused output sample(s) after the last frame",
-                                                 FuncName, data->getOutBufUsed());
-                vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), core);
-            }
+            data->logProcDone(core, vsapi);
 
             data->logOverflowStats(core, vsapi);
-
-            /*
-            // debugging message after the last frame
-            std::string logMsg = std::format("{}: process complete: used input samples: {}, gen output samples: {}, outAudioInfo->numSamples: {}",
-                                             FuncName, data->getUsedInSamples(), data->getGenOutSamples(), data->getOutAudioInfo().numSamples);
-            vsapi->logMessage(VSMessageType::mtDebug, logMsg.c_str(), core);
-            */
         }
 
         if (success)
