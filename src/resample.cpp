@@ -70,7 +70,7 @@ static int64_t convSamples(int64_t inSample, int inSampleRate, int outSampleRate
  */
 static int calcInBufLen(int numOutSamples, int outSampleRate, int inSampleRate)
 {
-    return static_cast<int>(convSamples(numOutSamples, outSampleRate, inSampleRate) * 1.1);
+    return static_cast<int>(convSamples(numOutSamples, outSampleRate, inSampleRate) * 2);
 }
 
 
@@ -106,7 +106,7 @@ static std::optional<std::pair<int, int>> findFittingBufferSizes(
 {
     // soxr usually needs big buffers for the first input samples to fill one output frame
     // try several output length multipliers
-    for (int m = 2; m < 100; ++m)
+    for (int m = 3; m < 100; ++m)
     {
         int outBufLen = static_cast<int>(minOutLen * m);
         int inBufLen = calcInBufLen(outBufLen, outSampleRate, inSampleRate);
@@ -180,6 +180,12 @@ std::optional<Resample*> Resample::newResample(
 
     if (auto optBufSizes = findFittingBufferSizes(resState, inAudioInfo->sampleRate, outSampleRate, inAudioInfo->format.numChannels, VS_AUDIO_FRAME_SAMPLES))
     {
+        // debug message
+        /*
+        std::string bufMsg = std::format("{}: inBufLen: {}, outBufLen: {}", FuncName, optBufSizes.value().first, optBufSizes.value().second);
+        vsapi->logMessage(VSMessageType::mtInformation, bufMsg.c_str(), core);
+        */
+
         return new Resample(inAudio, inAudioInfo, outSampleRate, outSampleType, overflowMode, overflowLog, resState, optBufSizes.value().first, optBufSizes.value().second);
     }
 
@@ -405,6 +411,13 @@ bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::Overfl
 {
     bool endOfInput = inAudioInfo.numSamples <= inPosReadNext;
 
+    // debug message
+    /*
+    std::string logMsg = std::format("{}: PRE resampleChunks: frame: {},  endOfInput: {}, inBufUsed: {}, outBufUsed: {}, totalUsedInSamples: {}, totalGenOutSamples: {}",
+                                     FuncName, outFrmNum, endOfInput, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
+    ofCtx.vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), ofCtx.core);
+    */
+
     while (outBufUsed < outFrmLen)
     {
         // one sample actually means one sample of each channel
@@ -439,11 +452,11 @@ bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::Overfl
 
         moveInterleavedSamplesLeft(inBuf, inBufLen, static_cast<int>(inSamplesUsed), inBufUsed, numChannels);
 
-        // debugging message
+        // debug message
         /*
         double outDelay = soxr_delay(resState);
-        std::string logMsg = std::format("{}: resampleChunks: frame: {}, inSamplesUsed: {}, outSamplesGen: {}, endOfInput: {}, outDelay: {}, inBufUsed: {}, outBufUsed: {}, totalUsedInSamples: {}, totalGenOutSamples: {}",
-                                         FuncName, outFrmNum, inSamplesUsed, outSamplesGen, endOfInput, outDelay, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
+        std::string logMsg = std::format("{}: POST resampleChunks: frame: {}, inSamplesUsed: {}, outSamplesGen: {}, outDelay: {},  endOfInput: {}, inBufUsed: {}, outBufUsed: {}, totalUsedInSamples: {}, totalGenOutSamples: {}",
+                                         FuncName, outFrmNum, inSamplesUsed, outSamplesGen, outDelay, endOfInput, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
         ofCtx.vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), ofCtx.core);
         */
 
@@ -500,6 +513,16 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
     else
     {
         // current frame is *not* a subsequent frame -> reset state
+        if (0 <= lastOutFrmNum)
+        {
+            // this is *not* the initial reset
+            // this plugin requires a strict sequential frame order
+            std::string logMsg = std::format("{}: Reset resampler: frame: {}, last frame: {}, seconds: {:.2f}",
+                                             FuncName, outFrmNum, lastOutFrmNum,
+                                             vsutils::samplesToSeconds(vsutils::frameToFirstSample(outFrmNum), outAudioInfo.sampleRate));
+            ofCtx.vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), ofCtx.core);
+        }
+
         inBufUsed = 0;
         outBufUsed = 0;
         inPosReadNext = 0;
