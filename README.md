@@ -1,12 +1,12 @@
 # VS-AudioResample
-This is an audio sample rate and sample type converter for VapourSynth utilizing [libsamplerate](https://github.com/libsndfile/libsamplerate).
+This is an audio sample rate and sample type converter for VapourSynth utilizing the [SoX Resampler](https://sourceforge.net/projects/soxr/) library.
 
 ## Usage
 ```python
 ares.Resample(clip: vs.AudioNode,
               sample_rate: int = -1,
               sample_type: str = None,
-              conv_type: int = 0,
+              quality: str = 'very_high',
               overflow: str = 'error',
               overflow_log: str = 'once'
               ) -> vs.AudioNode
@@ -24,13 +24,14 @@ ares.Resample(clip: vs.AudioNode,
     'f32' - float   32-bit
 ```
 
-*conv_type* - resample conversion type; see [libsamplerate docs](https://libsndfile.github.io/libsamplerate/api_misc.html#converters) for details; default: 0
+*quality* - resample quality; default: 'very_high'
 ```text
-    0 - SRC_SINC_BEST_QUALITY (default)
-    1 - SRC_SINC_MEDIUM_QUALITY
-    2 - SRC_SINC_FASTEST
-    3 - SRC_ZERO_ORDER_HOLD
-    4 - SRC_LINEAR
+    'quick'     - quick cubic interpolation
+    'low'       - low quality
+    'medium'    - medium quality
+    'high'      - high quality
+    'very_high' - very high quality (default)
+    'max'       - maximum quality
 ```
 
 *overflow* - sample overflow handling; default: 'error'
@@ -113,23 +114,36 @@ audio = vs.core.ares.Resample(audio, sample_type='i24')
 ```
 
 ## Dependencies
-This project uses [libsamplerate](https://github.com/libsndfile/libsamplerate) for audio sample rate conversion.
+This project uses the [SoX Resampler](https://sourceforge.net/projects/soxr/) library (`soxr`), which is licensed under the [GNU Lesser General Public License (LGPL) v2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html).
 
-You do **not** need to install it separately. The build script will automatically download and compile the library as part of the build process.
+The distributed binaries of this plugin statically link to `soxr` for performance and ease of use. If you prefer to use a customized version of `soxr`, or to link dynamically instead, you can build the plugin from source. See the [Build from source](#build-from-source) section for instructions.
 
 
 ## Build from source
-Use cmake to configure your preferred build system and run it.\
-This will build the dependency libsamplerate as well as this plugin\
-e.g. cmake with Ninja:
+To build the plugin, you’ll need CMake and a C++20-compatible compiler. OpenMP support is optional.
+
+Run CMake to configure your preferred build system, then build the project. This process will automatically download and build the `soxr` dependency along with the plugin.
+
+**Note:** You don’t need to download or build `soxr` yourself. However, if you prefer to use a local or customized version of `soxr`, you can provide its source path during configuration (see options below).
+
+e.g. CMake with Ninja:
 ```sh
-# EITHER build with statically linked libsamplerate
+# EITHER build with statically linked soxr
 cmake -G Ninja -B ./build-ninja -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release
 
-# OR build with dynamically linked libsamplerate
+# OR build with dynamically linked soxr
 cmake -G Ninja -B ./build-ninja -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release
 
 ninja -C ./build-ninja
+```
+
+Custom options for cmake:
+```text
+-DSOXR_SOURCE_DIR=<PATH>     Use a custom soxr source directory
+                             (must contain CMakeLists.txt)
+-DSOXR_USE_PATCHES=<ON|OFF>  Enable patches needed for outdated 
+                             soxr build scripts (default: ON)
+-DWITH_OPENMP=<ON|OFF>       Enable or disable OpenMP support (default: ON)
 ```
 
 

@@ -9,14 +9,16 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
-#include <samplerate.h>
+#include <soxr.h>
 
 #include "VapourSynth4.h"
 
 #include "resample.hpp"
 #include "common/overflow.hpp"
+#include "common/resquality.hpp"
 #include "common/sampletype.hpp"
 #include "utils/debug.hpp"
 #include "utils/sample.hpp"
@@ -27,9 +29,31 @@
 
 constexpr const char* FuncName = "Resample";
 
-constexpr int DefaultResampleType = SRC_SINC_BEST_QUALITY;
+constexpr common::ResampleQuality DefaultResampleQuality = common::ResampleQuality::VeryHigh;
 constexpr common::OverflowMode DefaultOverflowMode = common::OverflowMode::Error;
 constexpr common::OverflowLog DefaultOverflowLog = common::OverflowLog::Once;
+
+
+static unsigned long resQualityToSoxrQuality(common::ResampleQuality resQuality)
+{
+    switch (resQuality)
+    {
+        case common::ResampleQuality::Quick:
+            return SOXR_QQ;
+        case common::ResampleQuality::Low:
+            return SOXR_LQ;
+        case common::ResampleQuality::Medium:
+            return SOXR_MQ;
+        case common::ResampleQuality::High:
+            return SOXR_HQ;
+        case common::ResampleQuality::VeryHigh:
+            return SOXR_VHQ;
+        case common::ResampleQuality::Maximum:
+            return SOXR_32_BITQ;
+        default:
+            return SOXR_VHQ;
+    }
+}
 
 
 static int64_t convSamples(int64_t inSample, int inSampleRate, int outSampleRate)
@@ -42,7 +66,7 @@ static int64_t convSamples(int64_t inSample, int inSampleRate, int outSampleRate
 
 
 /**
- * number of input samples to cover the output buffer (generously extended)
+ * number of input samples to cover the output samples (generously extended)
  */
 static int calcInBufLen(int numOutSamples, int outSampleRate, int inSampleRate)
 {
@@ -50,46 +74,44 @@ static int calcInBufLen(int numOutSamples, int outSampleRate, int inSampleRate)
 }
 
 
-static bool checkResampleBufferSizes(SRC_STATE* resState, int inBufLen, int outBufLen, int numChannels, int minOutLen, double resRatio)
+static bool checkResampleBufferSizes(soxr_t resState, int inBufLen, int outBufLen, int numChannels, int minOutLen)
 {
     float* inBuf = new float[inBufLen * numChannels]();
     float* outBuf = new float[outBufLen * numChannels]();
 
-    SRC_DATA resData =
-    {
-        .data_in = inBuf,
-        .data_out = outBuf,
-        .input_frames = inBufLen,
-        .output_frames = outBufLen,
-        .input_frames_used = 0,
-        .output_frames_gen = 0,
-        .end_of_input = static_cast<int>(false),
-        .src_ratio = resRatio,
-    };
+    size_t inSamplesUsed;
+    size_t outSamplesGen;
 
-    // resample samples in inBuf and write to outBuf
-    int error = src_process(resState, &resData);
+    soxr_error_t error = soxr_process(
+        resState,
+        inBuf,
+        inBufLen,
+        &inSamplesUsed,
+        outBuf,
+        outBufLen,
+        &outSamplesGen
+    );
 
-    src_reset(resState);
+    soxr_clear(resState);
 
     delete[] inBuf;
     delete[] outBuf;
 
-    return (minOutLen < static_cast<int>(resData.output_frames_gen)) && !error;
+    return (minOutLen < static_cast<int>(outSamplesGen)) && !error;
 }
 
 
 static std::optional<std::pair<int, int>> findFittingBufferSizes(
-        SRC_STATE* resState, int inSampleRate, int outSampleRate, int numChannels, int minOutLen)
+        soxr_t resState, int inSampleRate, int outSampleRate, int numChannels, int minOutLen)
 {
-    double resRatio = static_cast<double>(outSampleRate) / static_cast<double>(inSampleRate);
+    // soxr usually needs big buffers for the first input samples to fill one output frame
     // try several output length multipliers
-    for (int m = 2; m < 10; ++m)
+    for (int m = 2; m < 100; ++m)
     {
         int outBufLen = static_cast<int>(minOutLen * m);
         int inBufLen = calcInBufLen(outBufLen, outSampleRate, inSampleRate);
 
-        if (checkResampleBufferSizes(resState, inBufLen, outBufLen, numChannels, minOutLen, resRatio))
+        if (checkResampleBufferSizes(resState, inBufLen, outBufLen, numChannels, minOutLen))
         {
             return std::make_pair(inBufLen, outBufLen);
         }
@@ -125,14 +147,33 @@ static int moveInterleavedSamplesLeft(float* buf, int bufLen, int startSample, i
 
 
 std::optional<Resample*> Resample::newResample(
-        VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType, int resampleType,
-        common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSMap* out, const VSAPI* vsapi)
+        VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType, common::ResampleQuality resQuality,
+        common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSMap* out, VSCore* core, const VSAPI* vsapi)
 {
-    int err;
-    SRC_STATE* resState = src_new(resampleType, inAudioInfo->format.numChannels, &err);
-    if (err)
+    if (inAudioInfo->sampleRate == outSampleRate)
     {
-        std::string errMsg = std::format("{}: src_new error: {}", FuncName, src_strerror(err));
+        // no resampling required
+        return new Resample(inAudio, inAudioInfo, outSampleRate, outSampleType, overflowMode, overflowLog, nullptr, 0, 0);
+    }
+
+    const soxr_io_spec_t io_spec = soxr_io_spec(SOXR_FLOAT32_I, SOXR_FLOAT32_I);
+    const soxr_quality_spec_t quality_spec = soxr_quality_spec(resQualityToSoxrQuality(resQuality), 0);
+
+    soxr_error_t error;
+
+    soxr_t resState = soxr_create(
+        inAudioInfo->sampleRate,
+        outSampleRate,
+        inAudioInfo->format.numChannels,
+        &error,
+        &io_spec,
+        &quality_spec,
+        nullptr
+    );
+
+    if (error)
+    {
+        std::string errMsg = std::format("{}: soxr_create error: {}", FuncName, error);
         vsapi->mapSetError(out, errMsg.c_str());
         return std::nullopt;
     }
@@ -149,13 +190,13 @@ std::optional<Resample*> Resample::newResample(
 
 
 Resample::Resample(VSNode* _inAudio, const VSAudioInfo* _inAudioInfo, int _outSampleRate, common::SampleType _outSampleType,
-                   common::OverflowMode _overflowMode, common::OverflowLog _overflowLog, SRC_STATE* _resState, int _inBufLen, int _outBufLen) :
+                   common::OverflowMode _overflowMode, common::OverflowLog _overflowLog, soxr_t _resState, int _inBufLen, int _outBufLen) :
     inAudio(_inAudio), inAudioInfo(*_inAudioInfo), outSampleRate(_outSampleRate),
     inSampleType(common::getSampleTypeFromAudioFormat(_inAudioInfo->format).value()), outSampleType(_outSampleType),
     overflowMode(_overflowMode), overflowLog(_overflowLog), numChannels(_inAudioInfo->format.numChannels),
     resState(_resState), inBufLen(_inBufLen), outBufLen(_outBufLen)
 {
-    // destination audio information
+    // output audio information
     outAudioInfo = inAudioInfo;
     outAudioInfo.sampleRate = outSampleRate;
 
@@ -218,10 +259,7 @@ void Resample::logProcDone(VSCore* core, const VSAPI* vsapi)
 {
     if (0 < outBufUsed)
     {
-        // this can happen because of issues with libsamplerate
-        // https://github.com/libsndfile/libsamplerate/issues/206
-        // https://github.com/libsndfile/libsamplerate/issues/175
-        std::string logMsg = std::format("{}: Done. {} unused output sample(s) after the last frame",
+        std::string logMsg = std::format("{}: Process finished. {} unused output sample(s) after the last frame",
                                          FuncName, outBufUsed);
         vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), core);
     }
@@ -232,7 +270,7 @@ void Resample::free(const VSAPI* vsapi)
 {
     vsapi->freeNode(inAudio);
 
-    src_delete(resState);
+    soxr_delete(resState);
 
     delete[] inBuf;
     delete[] outBuf;
@@ -277,7 +315,7 @@ bool Resample::writeFrameNoResampling(VSFrame* outFrm, int64_t outPosFrmStart, i
 /**
  * fills buf with samples from all channels from 'inPosReadStart' (inclusive) to 'inPosReadEnd' (exclusive)
  * samples will be stored channel interleaved
- * obviously the provided source frames should cover the specified sample range
+ * obviously the provided input frames should cover the specified sample range
  */
 template <typename in_sample_t, size_t InIntSampleBits>
 int Resample::fillInterleavedSamples(float* buf, int bufLen, int bufUsed, int64_t inPosReadStart, int64_t inPosReadEnd,
@@ -369,50 +407,47 @@ bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::Overfl
 
     while (outBufUsed < outFrmLen)
     {
-        // prepare resample data
-        // Note: a frame in libsamplerate is one (channel interleaved) sample
-        SRC_DATA resData =
-        {
-            .data_in = inBuf,
-            // there might be already some samples in outBuf that were produced
-            // during the process of a previous output frame by source samples that cover more than the output frame
-            .data_out = &outBuf[outBufUsed * numChannels],
-            .input_frames = inBufUsed,
-            .output_frames = static_cast<long>(outBufLen - outBufUsed),
-            .input_frames_used = 0,
-            .output_frames_gen = 0,
-            .end_of_input = static_cast<int>(endOfInput && (inBufUsed <= 0)),
-            .src_ratio = resRatio,
-        };
+        // one sample actually means one sample of each channel
+        size_t inSamplesUsed;
+        size_t outSamplesGen;
 
         // resample samples in inBuf and write to outBuf
-        int err = src_process(resState, &resData);
-        if (err)
+        soxr_error_t error = soxr_process(
+            resState,
+            endOfInput && (inBufUsed <= 0) ? nullptr : inBuf,
+            inBufUsed,
+            &inSamplesUsed,
+            &outBuf[outBufUsed * numChannels],
+            outBufLen - outBufUsed,
+            &outSamplesGen
+        );
+
+        if (error)
         {
-            std::string logMsg = std::format("{}: src_process error in frame: {}, error code: {}, message: {}",
-                                             FuncName, outFrmNum, err, src_strerror(err));
+            std::string logMsg = std::format("{}: soxr_process error in frame: {}, error: {}",
+                                             FuncName, outFrmNum, error);
             ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
             ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
             return false;
         }
 
-        totalUsedInSamples += resData.input_frames_used;
-        totalGenOutSamples += resData.output_frames_gen;
+        totalUsedInSamples += inSamplesUsed;
+        totalGenOutSamples += outSamplesGen;
 
-        inBufUsed -= static_cast<int>(resData.input_frames_used);
-        outBufUsed += static_cast<int>(resData.output_frames_gen);
+        inBufUsed -= static_cast<int>(inSamplesUsed);
+        outBufUsed += static_cast<int>(outSamplesGen);
 
-        moveInterleavedSamplesLeft(inBuf, inBufLen, static_cast<int>(resData.input_frames_used), inBufUsed, numChannels);
+        moveInterleavedSamplesLeft(inBuf, inBufLen, static_cast<int>(inSamplesUsed), inBufUsed, numChannels);
 
         // debugging message
         /*
         double outDelay = soxr_delay(resState);
         std::string logMsg = std::format("{}: resampleChunks: frame: {}, inSamplesUsed: {}, outSamplesGen: {}, endOfInput: {}, outDelay: {}, inBufUsed: {}, outBufUsed: {}, totalUsedInSamples: {}, totalGenOutSamples: {}",
-                                         FuncName, outFrmNum, resData.input_frames_used, resData.output_frames_gen, endOfInput, outDelay, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
+                                         FuncName, outFrmNum, inSamplesUsed, outSamplesGen, endOfInput, outDelay, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
         ofCtx.vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), ofCtx.core);
         */
 
-        if (resData.input_frames_used == 0 && resData.output_frames_gen == 0)
+        if (inSamplesUsed == 0 && outSamplesGen == 0)
         {
             // no changes to input or output buffer
             break;
@@ -435,7 +470,7 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
 
     if (inAudioInfo.sampleRate == outAudioInfo.sampleRate)
     {
-        assertm(inFrms.size() == 1, "exactly 1 source frame expected if sample rates are equal");
+        assertm(inFrms.size() == 1, "exactly 1 input frame expected if sample rates are equal");
 
         return writeFrameNoResampling<in_sample_t, InIntSampleBits, out_sample_t, OutIntSampleBits>(
                 outFrm, outPosFrmStart, outFrmLen, inFrms[0], ofCtx);
@@ -444,7 +479,7 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
     if (lastOutFrmNum + 1 == outFrmNum)
     {
         // subsequent frames
-        // there are probably already some read source samples which should not be read again
+        // there are probably already some read input samples which should not be read again
         if (inPosReadStart <= inPosReadNext)
         {
             inPosReadStart = inPosReadNext;
@@ -452,10 +487,10 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         else
         {
             // inPosReadNext < inPosReadStart
-            // not supposed to happen since we always consume more source samples than needed
+            // not supposed to happen since we always consume more input samples than needed
             int64_t missingSamples = inPosReadStart - inPosReadNext;
 
-            std::string logMsg = std::format("{}: {} missing source sample(s) in frame {}, last consumed source sample: {}, next source sample: {}",
+            std::string logMsg = std::format("{}: {} missing input sample(s) in frame {}, last consumed input sample: {}, next input sample: {}",
                                              FuncName, missingSamples, outFrmNum, inPosReadNext - 1, inPosReadStart);
             ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
             ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
@@ -474,7 +509,14 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         totalUsedInSamples = 0;
         totalGenOutSamples = 0;
 
-        src_reset(resState);
+        soxr_error_t error = soxr_clear(resState);
+        if (error)
+        {
+            std::string errMsg = std::format("{}: soxr_create error: {}", FuncName, error);
+            ofCtx.vsapi->logMessage(VSMessageType::mtCritical, errMsg.c_str(), ofCtx.core);
+            ofCtx.vsapi->setFilterError(errMsg.c_str(), ofCtx.frameCtx);
+            return false;
+        }
 
         overflowStats = { .count = 0, .peak = 0.0 };
     }
@@ -484,7 +526,6 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
     // with 256 being the maximum resampling factor of libsamplerate
     int inSamplesToRead = static_cast<int>(inPosReadEnd - inPosReadStart);
 
-    // in some cases all source samples are already consumed before the last output frame -> inSamplesToRead <= 0
     if (0 < inSamplesToRead)
     {
         // fill source buffer
@@ -524,9 +565,11 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         }
 
         // last frame
+        double soxrDelay = soxr_delay(resState);
+
         std::string logMsg = std::format("{}: Process finished. Not enough output samples generated for the last frame {}. Last {} sample(s) will be muted. "
-                                         "inPosReadNext: {}, inBufUsed: {}",
-                                         FuncName, outFrmNum, missingSamples, inPosReadNext, inBufUsed);
+                                         "soxr_delay: {}, inPosReadNext: {}, inBufUsed: {}",
+                                         FuncName, outFrmNum, missingSamples, soxrDelay, inPosReadNext, inBufUsed);
         ofCtx.vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), ofCtx.core);
 
         // mute missing samples
@@ -823,15 +866,6 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         outSampleRate = inAudioInfo->sampleRate;
     }
 
-    double sampleRateRatio = static_cast<double>(outSampleRate) / static_cast<double>(inAudioInfo->sampleRate);
-    if (!src_is_valid_ratio(sampleRateRatio))
-    {
-        std::string errMsg = std::format("{}: sample rate ratio not supported: {:.2f}", FuncName, sampleRateRatio);
-        vsapi->mapSetError(out, errMsg.c_str());
-        vsapi->freeNode(inAudio);
-        return;
-    }
-
     // sample_type:data:opt
     std::optional<common::SampleType> optOutSampleType = vsmap::getOptVapourSynthSampleTypeFromString("sample_type", FuncName, in, out, vsapi, optInSampleType.value());
     if (!optOutSampleType.has_value())
@@ -840,23 +874,12 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
         return;
     }
 
-    // conv_type:int:opt
-    int resampleType = vsmap::getOptInt("conv_type", in, vsapi, DefaultResampleType);
-    switch (resampleType)
+    // quality:data:opt
+    std::optional<common::ResampleQuality> optResQuality = vsmap::getOptResampleQualityFromString("quality", FuncName, in, out, vsapi, DefaultResampleQuality);
+    if (!optResQuality.has_value())
     {
-        case SRC_SINC_BEST_QUALITY:
-        case SRC_SINC_MEDIUM_QUALITY:
-        case SRC_SINC_FASTEST:
-        case SRC_ZERO_ORDER_HOLD:
-        case SRC_LINEAR:
-            // OK
-            break;
-        default:
-            std::string errMsg = std::format("{}: invalid conv_type value: {}, must be one of: 0, 1, 2, 3, 4 (default: {})",
-                                             FuncName, resampleType, DefaultResampleType);
-            vsapi->mapSetError(out, errMsg.c_str());
-            vsapi->freeNode(inAudio);
-            return;
+        vsapi->freeNode(inAudio);
+        return;
     }
 
     // overflow:data:opt
@@ -884,7 +907,7 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
     }
 
 
-    std::optional<Resample*> optData = Resample::newResample(inAudio, inAudioInfo, outSampleRate, optOutSampleType.value(), resampleType, optOverflowMode.value(), optOverflowLog.value(), out, vsapi);
+    std::optional<Resample*> optData = Resample::newResample(inAudio, inAudioInfo, outSampleRate, optOutSampleType.value(), optResQuality.value(), optOverflowMode.value(), optOverflowLog.value(), out, core, vsapi);
     if (!optData.has_value())
     {
         vsapi->freeNode(inAudio);
@@ -904,7 +927,7 @@ void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
                              "clip:anode;"
                              "sample_rate:int:opt;"
                              "sample_type:data:opt;"
-                             "conv_type:int:opt;"
+                             "quality:data:opt;"
                              "overflow:data:opt;"
                              "overflow_log:data:opt;",
                              "return:anode;",

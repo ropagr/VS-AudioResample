@@ -35,6 +35,18 @@ namespace vsmap
     }
 
 
+    std::optional<common::ResampleQuality> getResampleQualityFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi)
+    {
+        return getValueFromString(varName, logFuncName, in, out, vsapi, common::getStringResampleQualityMap());
+    }
+
+
+    std::optional<common::ResampleQuality> getOptResampleQualityFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::ResampleQuality defaultValue)
+    {
+        return getOptValueFromString(varName, logFuncName, in, out, vsapi, common::getStringResampleQualityMap(), defaultValue);
+    }
+
+
     std::optional<common::SampleType> getSampleTypeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi)
     {
         return getValueFromString(varName, logFuncName, in, out, vsapi, common::getStringSampleTypeMap());

@@ -6,11 +6,12 @@
 #include <optional>
 #include <vector>
 
-#include <samplerate.h>
+#include <soxr.h>
 
 #include "VapourSynth4.h"
 
 #include "common/overflow.hpp"
+#include "common/resquality.hpp"
 #include "common/sampletype.hpp"
 
 
@@ -18,8 +19,8 @@ class Resample
 {
 public:
     static std::optional<Resample*> newResample(
-            VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType, int resampleType,
-            common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSMap* outMap, const VSAPI* vsapi);
+            VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType, common::ResampleQuality resQuality,
+            common::OverflowMode overflowMode, common::OverflowLog overflowLog, VSMap* outMap, VSCore* core, const VSAPI* vsapi);
 
     VSNode* getInAudio();
 
@@ -65,8 +66,8 @@ private:
     // is a subsequent frame of an already processed frame (-1)
     int lastOutFrmNum = -10;
 
-    // libsamplerate resampler instance
-    SRC_STATE* resState;
+    // soxr resampler instance
+    soxr_t resState;
 
     double resRatio = 0;
 
@@ -91,7 +92,7 @@ private:
 
 
     Resample(VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType,
-             common::OverflowMode overflowMode, common::OverflowLog overflowLog, SRC_STATE* resState, int _inBufLen, int _outBufLen);
+             common::OverflowMode overflowMode, common::OverflowLog overflowLog, soxr_t resState, int inBufLen, int outBufLen);
 
     template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
     bool writeFrameNoResampling(VSFrame* outFrame, int64_t outPosFrmStart, int outFrmLen, const VSFrame* inFrame,
