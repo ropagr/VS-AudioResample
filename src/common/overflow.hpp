@@ -70,7 +70,7 @@ namespace common
 
     void logNumOverflows(int64_t numOverflows, const char* funcName, VSCore* core, const VSAPI* vsapi);
 
-    static std::string genOverflowMsg(double sample, int64_t totalPos, int channel, const char* funcName)
+    static inline std::string genOverflowMsg(double sample, int64_t totalPos, int channel, const char* funcName)
     {
         return std::format("{}: Overflow detected. position: {}, channel: {}, sample: {:.6f}", funcName, totalPos, channel, sample);
     }

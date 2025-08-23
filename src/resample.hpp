@@ -68,6 +68,8 @@ private:
     // libsamplerate resampler instance
     SRC_STATE* resState;
 
+    double resRatio = 0;
+
     int64_t inPosReadNext = 0;
 
     // input buffer, channel interleaved samples
@@ -89,7 +91,7 @@ private:
 
 
     Resample(VSNode* inAudio, const VSAudioInfo* inAudioInfo, int outSampleRate, common::SampleType outSampleType,
-             common::OverflowMode overflowMode, common::OverflowLog overflowLog, SRC_STATE* resState);
+             common::OverflowMode overflowMode, common::OverflowLog overflowLog, SRC_STATE* resState, int _inBufLen, int _outBufLen);
 
     template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
     bool writeFrameNoResampling(VSFrame* outFrame, int64_t outPosFrmStart, int outFrmLen, const VSFrame* inFrame,
@@ -102,6 +104,8 @@ private:
     template <typename out_sample_t, size_t OutIntSampleBits>
     std::optional<int> writeFrameFromInterleavedSamples(VSFrame* outFrm, int64_t outPosFrmStart, int outFrmLen,
                                                         float* buf, int bufLen, int bufUsed, const common::OverflowContext& ofCtx);
+
+    bool resampleChunks(int outFrmNum, int outFrmLen, const common::OverflowContext& ofCtx);
 
     template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
     bool writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart, int64_t inPosReadEnd,

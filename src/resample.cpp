@@ -31,8 +31,6 @@ constexpr int DefaultResampleType = SRC_SINC_BEST_QUALITY;
 constexpr common::OverflowMode DefaultOverflowMode = common::OverflowMode::Error;
 constexpr common::OverflowLog DefaultOverflowLog = common::OverflowLog::Once;
 
-constexpr int DefaultOutBufLen = static_cast<int>(VS_AUDIO_FRAME_SAMPLES * 1.05);
-
 
 static int64_t convSamples(int64_t inSample, int inSampleRate, int outSampleRate)
 {
@@ -49,6 +47,54 @@ static int64_t convSamples(int64_t inSample, int inSampleRate, int outSampleRate
 static int calcInBufLen(int numOutSamples, int outSampleRate, int inSampleRate)
 {
     return static_cast<int>(convSamples(numOutSamples, outSampleRate, inSampleRate) * 1.1);
+}
+
+
+static bool checkResampleBufferSizes(SRC_STATE* resState, int inBufLen, int outBufLen, int numChannels, int minOutLen, double resRatio)
+{
+    float* inBuf = new float[inBufLen * numChannels]();
+    float* outBuf = new float[outBufLen * numChannels]();
+
+    SRC_DATA resData =
+    {
+        .data_in = inBuf,
+        .data_out = outBuf,
+        .input_frames = inBufLen,
+        .output_frames = outBufLen,
+        .input_frames_used = 0,
+        .output_frames_gen = 0,
+        .end_of_input = static_cast<int>(false),
+        .src_ratio = resRatio,
+    };
+
+    // resample samples in inBuf and write to outBuf
+    int error = src_process(resState, &resData);
+
+    src_reset(resState);
+
+    delete[] inBuf;
+    delete[] outBuf;
+
+    return (minOutLen < static_cast<int>(resData.output_frames_gen)) && !error;
+}
+
+
+static std::optional<std::pair<int, int>> findFittingBufferSizes(
+        SRC_STATE* resState, int inSampleRate, int outSampleRate, int numChannels, int minOutLen)
+{
+    double resRatio = static_cast<double>(outSampleRate) / static_cast<double>(inSampleRate);
+    // try several output length multipliers
+    for (int m = 2; m < 10; ++m)
+    {
+        int outBufLen = static_cast<int>(minOutLen * m);
+        int inBufLen = calcInBufLen(outBufLen, outSampleRate, inSampleRate);
+
+        if (checkResampleBufferSizes(resState, inBufLen, outBufLen, numChannels, minOutLen, resRatio))
+        {
+            return std::make_pair(inBufLen, outBufLen);
+        }
+    }
+    return std::nullopt;
 }
 
 
@@ -91,15 +137,23 @@ std::optional<Resample*> Resample::newResample(
         return std::nullopt;
     }
 
-    return new Resample(inAudio, inAudioInfo, outSampleRate, outSampleType, overflowMode, overflowLog, resState);
+    if (auto optBufSizes = findFittingBufferSizes(resState, inAudioInfo->sampleRate, outSampleRate, inAudioInfo->format.numChannels, VS_AUDIO_FRAME_SAMPLES))
+    {
+        return new Resample(inAudio, inAudioInfo, outSampleRate, outSampleType, overflowMode, overflowLog, resState, optBufSizes.value().first, optBufSizes.value().second);
+    }
+
+    std::string errMsg = std::format("{}: No fitting buffer sizes found", FuncName);
+    vsapi->mapSetError(out, errMsg.c_str());
+    return std::nullopt;
 }
 
 
 Resample::Resample(VSNode* _inAudio, const VSAudioInfo* _inAudioInfo, int _outSampleRate, common::SampleType _outSampleType,
-                   common::OverflowMode _overflowMode, common::OverflowLog _overflowLog, SRC_STATE* _resState) :
+                   common::OverflowMode _overflowMode, common::OverflowLog _overflowLog, SRC_STATE* _resState, int _inBufLen, int _outBufLen) :
     inAudio(_inAudio), inAudioInfo(*_inAudioInfo), outSampleRate(_outSampleRate),
     inSampleType(common::getSampleTypeFromAudioFormat(_inAudioInfo->format).value()), outSampleType(_outSampleType),
-    overflowMode(_overflowMode), overflowLog(_overflowLog), numChannels(_inAudioInfo->format.numChannels), resState(_resState)
+    overflowMode(_overflowMode), overflowLog(_overflowLog), numChannels(_inAudioInfo->format.numChannels),
+    resState(_resState), inBufLen(_inBufLen), outBufLen(_outBufLen)
 {
     // destination audio information
     outAudioInfo = inAudioInfo;
@@ -112,13 +166,12 @@ Resample::Resample(VSNode* _inAudio, const VSAudioInfo* _inAudioInfo, int _outSa
         outAudioInfo.numFrames = vsutils::sampleCountToFrames(outAudioInfo.numSamples);
     }
 
+    resRatio = static_cast<double>(outAudioInfo.sampleRate) / static_cast<double>(inAudioInfo.sampleRate);
+
     common::applySampleTypeToAudioFormat(outSampleType, outAudioInfo.format);
 
-    outBufLen = DefaultOutBufLen;
-    outBuf = new float[outBufLen * numChannels];
-
-    inBufLen = calcInBufLen(outBufLen, outSampleRate, inAudioInfo.sampleRate);
     inBuf = new float[inBufLen * numChannels];
+    outBuf = new float[outBufLen * numChannels];
 }
 
 
@@ -172,12 +225,6 @@ void Resample::logProcDone(VSCore* core, const VSAPI* vsapi)
                                          FuncName, outBufUsed);
         vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), core);
     }
-
-    /*
-    std::string logMsg2 = std::format("{}: Done. used input samples: {}, generated output samples: {}",
-                                     FuncName, totalUsedInSamples, totalGenOutSamples);
-    vsapi->logMessage(VSMessageType::mtInformation, logMsg2.c_str(), core);
-    */
 }
 
 
@@ -316,6 +363,66 @@ std::optional<int> Resample::writeFrameFromInterleavedSamples(VSFrame* outFrm, i
 }
 
 
+bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::OverflowContext& ofCtx)
+{
+    bool endOfInput = inAudioInfo.numSamples <= inPosReadNext;
+
+    while (outBufUsed < outFrmLen)
+    {
+        // prepare resample data
+        // Note: a frame in libsamplerate is one (channel interleaved) sample
+        SRC_DATA resData =
+        {
+            .data_in = inBuf,
+            // there might be already some samples in outBuf that were produced
+            // during the process of a previous output frame by source samples that cover more than the output frame
+            .data_out = &outBuf[outBufUsed * numChannels],
+            .input_frames = inBufUsed,
+            .output_frames = static_cast<long>(outBufLen - outBufUsed),
+            .input_frames_used = 0,
+            .output_frames_gen = 0,
+            .end_of_input = static_cast<int>(endOfInput && (inBufUsed <= 0)),
+            .src_ratio = resRatio,
+        };
+
+        // resample samples in inBuf and write to outBuf
+        int err = src_process(resState, &resData);
+        if (err)
+        {
+            std::string logMsg = std::format("{}: src_process error in frame: {}, error code: {}, message: {}",
+                                             FuncName, outFrmNum, err, src_strerror(err));
+            ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
+            ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
+            return false;
+        }
+
+        totalUsedInSamples += resData.input_frames_used;
+        totalGenOutSamples += resData.output_frames_gen;
+
+        inBufUsed -= static_cast<int>(resData.input_frames_used);
+        outBufUsed += static_cast<int>(resData.output_frames_gen);
+
+        moveInterleavedSamplesLeft(inBuf, inBufLen, static_cast<int>(resData.input_frames_used), inBufUsed, numChannels);
+
+        // debugging message
+        /*
+        double outDelay = soxr_delay(resState);
+        std::string logMsg = std::format("{}: resampleChunks: frame: {}, inSamplesUsed: {}, outSamplesGen: {}, endOfInput: {}, outDelay: {}, inBufUsed: {}, outBufUsed: {}, totalUsedInSamples: {}, totalGenOutSamples: {}",
+                                         FuncName, outFrmNum, resData.input_frames_used, resData.output_frames_gen, endOfInput, outDelay, inBufUsed, outBufUsed, totalUsedInSamples, totalGenOutSamples);
+        ofCtx.vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), ofCtx.core);
+        */
+
+        if (resData.input_frames_used == 0 && resData.output_frames_gen == 0)
+        {
+            // no changes to input or output buffer
+            break;
+        }
+    }
+
+    return true;
+}
+
+
 template <typename in_sample_t, size_t InIntSampleBits, typename out_sample_t, size_t OutIntSampleBits>
 bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart, int64_t inPosReadEnd,
                               const std::vector<const VSFrame*>& inFrms, int inFrmsNumStart,
@@ -390,50 +497,9 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         inPosReadNext = inPosReadStart + readSamples;
     }
 
-    if (0 < inBufUsed)
+    if (!resampleChunks(outFrmNum, outFrmLen, ofCtx))
     {
-        // prepare resample data
-        // Note: a frame in libsamplerate is one (channel interleaved) sample
-        SRC_DATA resData =
-        {
-            .data_in = inBuf,
-            // there might be already some samples in outBuf that were produced
-            // during the process of a previous output frame by source samples that cover more than the output frame
-            .data_out = &outBuf[outBufUsed * numChannels],
-            .input_frames = inBufUsed,
-            .output_frames = static_cast<long>(outBufLen - outBufUsed),
-            .input_frames_used = 0,
-            .output_frames_gen = 0,
-            .end_of_input = static_cast<int>(inPosReadNext == inAudioInfo.numSamples),
-            .src_ratio = static_cast<double>(outAudioInfo.sampleRate) / static_cast<double>(inAudioInfo.sampleRate),
-        };
-
-        // resample samples in inBuf and write to outBuf
-        int err = src_process(resState, &resData);
-        if (err)
-        {
-            std::string logMsg = std::format("{}: src_process error in frame: {}, error code: {}, message: {}",
-                                             FuncName, outFrmNum, err, src_strerror(err));
-            ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
-            ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
-            return false;
-        }
-
-        /*
-        // debugging message
-        std::string logMsg = std::format("{}: frame: {}, input_frames_used: {}, output_frames_gen: {}",
-                                         FuncName, outFrmNum, resData.input_frames_used, resData.output_frames_gen);
-        ofCtx.vsapi->logMessage(VSMessageType::mtDebug, logMsg.c_str(), ofCtx.core);
-        */
-
-        totalUsedInSamples += resData.input_frames_used;
-        totalGenOutSamples += resData.output_frames_gen;
-
-        inBufUsed -= resData.input_frames_used;
-
-        moveInterleavedSamplesLeft(inBuf, inBufLen, static_cast<int>(resData.input_frames_used), inBufUsed, numChannels);
-
-        outBufUsed += resData.output_frames_gen;
+        return false;
     }
 
     // handle output samples
@@ -441,14 +507,16 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
     if (outBufUsed < outFrmLen)
     {
         // not enough output samples generated
+        // not supposed to happen (rounding errors only?)
+
         int missingSamples = outFrmLen - outBufUsed;
 
         if (outFrmNum < outAudioInfo.numFrames - 1)
         {
             // outFrm is *not* the last frame
             // not supposed to happen
-            std::string logMsg = std::format("{}: Not enough output samples generated for frame: {} / {}. Missing samples: {}",
-                                             FuncName, outFrmNum, outAudioInfo.numFrames - 1, missingSamples);
+            std::string logMsg = std::format("{}: Not enough output samples generated for frame: {}. Missing samples: {}",
+                                             FuncName, outFrmNum, missingSamples);
             // this is critical
             ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
             ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
@@ -456,56 +524,15 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         }
 
         // last frame
-        // for the last output frame it can happen that there are some samples left in the libsamplerate buffer
-        // receive the remaining output samples
-        SRC_DATA resData =
-        {
-            .data_in = inBuf,
-            // there might be already some samples in outBuf that were produced
-            // during the process of a previous output frame by source samples that cover more than the output frame
-            .data_out = &outBuf[outBufUsed * numChannels],
-            .input_frames = 0,
-            .output_frames = static_cast<long>(outBufLen - outBufUsed),
-            .input_frames_used = 0,
-            .output_frames_gen = 0,
-            .end_of_input = static_cast<int>(true),
-            .src_ratio = static_cast<double>(outAudioInfo.sampleRate) / static_cast<double>(inAudioInfo.sampleRate),
-        };
+        std::string logMsg = std::format("{}: Process finished. Not enough output samples generated for the last frame {}. Last {} sample(s) will be muted. "
+                                         "inPosReadNext: {}, inBufUsed: {}",
+                                         FuncName, outFrmNum, missingSamples, inPosReadNext, inBufUsed);
+        ofCtx.vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), ofCtx.core);
 
-        int err = src_process(resState, &resData);
-        if (err)
-        {
-            std::string logMsg = std::format("{}: src_process error in frame: {}, error code: {}, message: {}",
-                                             FuncName, outFrmNum, err, src_strerror(err));
-            ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
-            ofCtx.vsapi->setFilterError(logMsg.c_str(), ofCtx.frameCtx);
-            return false;
-        }
+        // mute missing samples
+        setInterleavedSamples(outBuf, outBufLen, 0, outBufUsed, outFrmLen - outBufUsed, numChannels);
 
-        inBufUsed -= resData.input_frames_used;
-        outBufUsed += resData.output_frames_gen;
-
-        totalUsedInSamples += resData.input_frames_used;
-        totalGenOutSamples += resData.output_frames_gen;
-
-        // check if we have enough samples for the output frame now
-        if (outBufUsed < outFrmLen)
-        {
-            // this can happen because of issues with libsamplerate
-            // https://github.com/libsndfile/libsamplerate/issues/206
-            // https://github.com/libsndfile/libsamplerate/issues/175
-
-            missingSamples = outFrmLen - outBufUsed;
-
-            std::string logMsg = std::format("{}: Done. Not enough output samples generated for the last frame {}. Last {} sample(s) will be muted.",
-                                             FuncName, outFrmNum, missingSamples);
-            ofCtx.vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), ofCtx.core);
-
-            // mute missing samples
-            setInterleavedSamples(outBuf, outBufLen, 0, outBufUsed, outFrmLen - outBufUsed, numChannels);
-
-            outBufUsed = outFrmLen;
-        }
+        outBufUsed = outFrmLen;
     }
 
     // write samples from output buffer to output frame
