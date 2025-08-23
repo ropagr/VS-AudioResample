@@ -183,6 +183,8 @@ std::optional<Resample*> Resample::newResample(
         return new Resample(inAudio, inAudioInfo, outSampleRate, outSampleType, overflowMode, overflowLog, resState, optBufSizes.value().first, optBufSizes.value().second);
     }
 
+    std::string errMsg = std::format("{}: No fitting buffer sizes found", FuncName);
+    vsapi->mapSetError(out, errMsg.c_str());
     return std::nullopt;
 }
 
@@ -194,7 +196,7 @@ Resample::Resample(VSNode* _inAudio, const VSAudioInfo* _inAudioInfo, int _outSa
     overflowMode(_overflowMode), overflowLog(_overflowLog), numChannels(_inAudioInfo->format.numChannels),
     resState(_resState), inBufLen(_inBufLen), outBufLen(_outBufLen)
 {
-    // destination audio information
+    // output audio information
     outAudioInfo = inAudioInfo;
     outAudioInfo.sampleRate = outSampleRate;
 
@@ -259,11 +261,6 @@ void Resample::logProcDone(VSCore* core, const VSAPI* vsapi)
                                          FuncName, outBufUsed);
         vsapi->logMessage(VSMessageType::mtWarning, logMsg.c_str(), core);
     }
-
-    // TODO: remove
-    std::string logMsg2 = std::format("{}: Process finished. Used input samples: {}, Generated output samples: {}",
-                                      FuncName, totalUsedInSamples, totalGenOutSamples);
-    vsapi->logMessage(VSMessageType::mtInformation, logMsg2.c_str(), core);
 }
 
 
@@ -464,12 +461,6 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
                               const std::vector<const VSFrame*>& inFrms, int inFrmsNumStart,
                               const common::OverflowContext& ofCtx)
 {
-    /*
-    std::string logMsg = std::format("{}: writeFrameImpl, frame: {}",
-                                     FuncName, outFrmNum);
-    ofCtx.vsapi->logMessage(VSMessageType::mtInformation, logMsg.c_str(), ofCtx.core);
-    */
-
     int64_t outPosFrmStart = vsutils::frameToFirstSample(outFrmNum);
     int outFrmLen = ofCtx.vsapi->getFrameLength(outFrm);
 
@@ -563,7 +554,7 @@ bool Resample::writeFrameImpl(VSFrame* outFrm, int outFrmNum, int64_t inPosReadS
         {
             // outFrm is *not* the last frame
             // not supposed to happen
-            std::string logMsg = std::format("{}: Not enough output samples generated for frame: {}. Missing samples: {}, ",
+            std::string logMsg = std::format("{}: Not enough output samples generated for frame: {}. Missing samples: {}",
                                              FuncName, outFrmNum, missingSamples);
             // this is critical
             ofCtx.vsapi->logMessage(VSMessageType::mtCritical, logMsg.c_str(), ofCtx.core);
@@ -734,7 +725,7 @@ bool Resample::writeFrame(VSFrame* outFrm, int outFrmNum, int64_t inPosReadStart
 }
 
 
-static void VS_CC resamplesoxrFree(void* instanceData, VSCore* core, const VSAPI* vsapi)
+static void VS_CC resampleFree(void* instanceData, VSCore* core, const VSAPI* vsapi)
 {
     Resample* data = static_cast<Resample*>(instanceData);
     data->free(vsapi);
@@ -743,7 +734,7 @@ static void VS_CC resamplesoxrFree(void* instanceData, VSCore* core, const VSAPI
 }
 
 
-static const VSFrame* VS_CC resamplesoxrGetFrame(int outFrmNum, int activationReason, void* instanceData, void** frameData, VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi)
+static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason, void* instanceData, void** frameData, VSFrameContext* frameCtx, VSCore* core, const VSAPI* vsapi)
 {
     Resample* data = static_cast<Resample*>(instanceData);
 
@@ -844,7 +835,7 @@ static const VSFrame* VS_CC resamplesoxrGetFrame(int outFrmNum, int activationRe
 }
 
 
-static void VS_CC resamplesoxrCreate(const VSMap* in, VSMap* out, void* userData, VSCore* core, const VSAPI* vsapi)
+static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VSCore* core, const VSAPI* vsapi)
 {
     // clip:anode
     int err = 0;
@@ -924,7 +915,7 @@ static void VS_CC resamplesoxrCreate(const VSMap* in, VSMap* out, void* userData
     VSFilterDependency deps[] = {{ inAudio, VSRequestPattern::rpGeneral }};
 
     // fmParallelRequests: strict sequential frame requests
-    vsapi->createAudioFilter(out, FuncName, &optData.value()->getOutAudioInfo(), resamplesoxrGetFrame, resamplesoxrFree, VSFilterMode::fmParallelRequests, deps, 1, optData.value(), core);
+    vsapi->createAudioFilter(out, FuncName, &optData.value()->getOutAudioInfo(), resampleGetFrame, resampleFree, VSFilterMode::fmParallelRequests, deps, 1, optData.value(), core);
 }
 
 
@@ -938,5 +929,5 @@ void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
                              "overflow:data:opt;"
                              "overflow_log:data:opt;",
                              "return:anode;",
-                             resamplesoxrCreate, nullptr, plugin);
+                             resampleCreate, nullptr, plugin);
 }
