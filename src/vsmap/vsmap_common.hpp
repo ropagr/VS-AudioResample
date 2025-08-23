@@ -10,6 +10,7 @@
 #include "VapourSynth4.h"
 
 #include "common/overflow.hpp"
+#include "common/resquality.hpp"
 #include "common/sampletype.hpp"
 #include "utils/map.hpp"
 #include "utils/string.hpp"
@@ -78,6 +79,12 @@ namespace vsmap
 
     /** no error handling needed **/
     std::optional<common::OverflowLog> getOptOverflowLogFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::OverflowLog defaultValue);
+
+    /** no error handling needed **/
+    std::optional<common::ResampleQuality> getResampleQualityFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi);
+
+    /** no error handling needed **/
+    std::optional<common::ResampleQuality> getOptResampleQualityFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi, common::ResampleQuality defaultValue);
 
     /** no error handling needed **/
     std::optional<common::SampleType> getSampleTypeFromString(const char* varName, const char* logFuncName, const VSMap* in, VSMap* out, const VSAPI* vsapi);
