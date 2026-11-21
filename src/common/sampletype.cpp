@@ -141,6 +141,10 @@ namespace common
             case SampleType::Float32:
             case SampleType::Float64:
                 return true;
+            case SampleType::Int8:
+            case SampleType::Int16:
+            case SampleType::Int24:
+            case SampleType::Int32:
             default:
                 return false;
         }

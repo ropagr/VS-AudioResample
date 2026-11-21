@@ -76,6 +76,9 @@ static int calcInBufLen(int numOutSamples, int outSampleRate, int inSampleRate)
 
 static bool checkResampleBufferSizes(soxr_t resState, int inBufLen, int outBufLen, int numChannels, int minOutLen)
 {
+    assertm(0 <= inBufLen, "Negative input buffer length");
+    assertm(0 <= outBufLen, "Negative output buffer length");
+
     float* inBuf = new float[inBufLen * numChannels]();
     float* outBuf = new float[outBufLen * numChannels]();
 
@@ -85,10 +88,10 @@ static bool checkResampleBufferSizes(soxr_t resState, int inBufLen, int outBufLe
     soxr_error_t error = soxr_process(
         resState,
         inBuf,
-        inBufLen,
+        static_cast<size_t>(inBufLen),
         &inSamplesUsed,
         outBuf,
-        outBufLen,
+        static_cast<size_t>(outBufLen),
         &outSamplesGen
     );
 
@@ -138,9 +141,14 @@ static int setInterleavedSamples(float* buf, int bufLen, float sampleValue, int 
 
 static int moveInterleavedSamplesLeft(float* buf, int bufLen, int startSample, int numSamples, int numChannels)
 {
-    int samplesToMove = std::max(std::min(bufLen - startSample, numSamples), 0);
+    assertm(0 <= bufLen, "Negative buffer length");
+    assertm(0 <= startSample, "Negative start sample");
+    assertm(0 <= numSamples, "Negative sample count");
+    assertm(0 <= numChannels, "Negative number of channels");
 
-    std::memmove(buf, &buf[startSample * numChannels], sizeof(float) * samplesToMove * numChannels);
+    int samplesToMove = std::min(std::max(bufLen - startSample, 0), numSamples);
+
+    std::memmove(buf, &buf[static_cast<size_t>(startSample * numChannels)], sizeof(float) * static_cast<size_t>(samplesToMove * numChannels));
 
     return samplesToMove;
 }
@@ -164,7 +172,7 @@ std::optional<Resample*> Resample::newResample(
     soxr_t resState = soxr_create(
         inAudioInfo->sampleRate,
         outSampleRate,
-        inAudioInfo->format.numChannels,
+        static_cast<unsigned>(inAudioInfo->format.numChannels),
         &error,
         &io_spec,
         &quality_spec,
@@ -424,14 +432,18 @@ bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::Overfl
         size_t inSamplesUsed;
         size_t outSamplesGen;
 
+        assertm(0 <= inBufUsed, "Negative used input buffer");
+        assertm(0 <= outBufUsed, "Negative used output buffer");
+        assertm(0 <= outBufLen, "Negative output buffer length");
+
         // resample samples in inBuf and write to outBuf
         soxr_error_t error = soxr_process(
             resState,
             endOfInput && (inBufUsed <= 0) ? nullptr : inBuf,
-            inBufUsed,
+            static_cast<size_t>(inBufUsed),
             &inSamplesUsed,
             &outBuf[outBufUsed * numChannels],
-            outBufLen - outBufUsed,
+            static_cast<size_t>(outBufLen - outBufUsed),
             &outSamplesGen
         );
 
@@ -444,8 +456,8 @@ bool Resample::resampleChunks(int outFrmNum, int outFrmLen, const common::Overfl
             return false;
         }
 
-        totalUsedInSamples += inSamplesUsed;
-        totalGenOutSamples += outSamplesGen;
+        totalUsedInSamples += static_cast<int64_t>(inSamplesUsed);
+        totalGenOutSamples += static_cast<int64_t>(outSamplesGen);
 
         inBufUsed -= static_cast<int>(inSamplesUsed);
         outBufUsed += static_cast<int>(outSamplesGen);
@@ -800,6 +812,8 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
 
     int inFrmsSize = inFrmsNumEnd - inFrmsNumStart;
 
+    assertm(0 <= inFrmsSize, "Negative input frame size");
+
     if (activationReason == VSActivationReason::arInitial)
     {
         if (passthrough)
@@ -824,7 +838,7 @@ static const VSFrame* VS_CC resampleGetFrame(int outFrmNum, int activationReason
         }
 
         std::vector<const VSFrame*> inFrms;
-        inFrms.reserve(inFrmsSize);
+        inFrms.reserve(static_cast<std::vector<VSFrame const*>::size_type>(inFrmsSize));
 
         for (int i = 0; i < inFrmsSize; ++i)
         {
@@ -939,7 +953,8 @@ static void VS_CC resampleCreate(const VSMap* in, VSMap* out, void* userData, VS
 
     VSFilterDependency deps[] = {{ inAudio, VSRequestPattern::rpGeneral }};
 
-    // fmParallelRequests: strict sequential frame requests
+    // this plugin requires strict sequential frame access, but VapourSynth makes no guarantees about that
+    // fmParallelRequests is the best bet for serial frame access
     vsapi->createAudioFilter(out, FuncName, &optData.value()->getOutAudioInfo(), resampleGetFrame, resampleFree, VSFilterMode::fmParallelRequests, deps, 1, optData.value(), core);
 }
 
