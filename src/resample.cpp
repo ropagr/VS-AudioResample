@@ -953,6 +953,6 @@ void resampleInit(VSPlugin* plugin, const VSPLUGINAPI* vspapi)
                              "quality:data:opt;"
                              "overflow:data:opt;"
                              "overflow_log:data:opt;",
-                             "return:anode;",
+                             "clip:anode;",
                              resampleCreate, nullptr, plugin);
 }
