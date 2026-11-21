@@ -5,18 +5,18 @@ This is an audio sample rate and sample type converter for VapourSynth utilizing
 ```python
 ares.Resample(clip: vs.AudioNode,
               sample_rate: int = -1,
-              sample_type: str = None,
+              sample_type: str | None = None,
               quality: str = 'very_high',
               overflow: str = 'error',
-              overflow_log: str = 'once'
+              overflow_log: str = 'once',
               ) -> vs.AudioNode
 ```
 
 *clip* - input audio clip (any format)
 
-*sample_rate* - new sample rate (e.g. 16000, 44100, 48000, ...); same as input clip if negative; default: -1
+*sample_rate* - new sample rate (e.g. 16000, 44100, 48000, ...); same as input clip if negative; default: `-1`
 
-*sample_type* - new sample type; same as input clip if None; default: None
+*sample_type* - new sample type; same as input clip if `None`; default: `None`
 ```text
     'i16' - integer 16-bit
     'i24' - integer 24-bit
@@ -24,7 +24,7 @@ ares.Resample(clip: vs.AudioNode,
     'f32' - float   32-bit
 ```
 
-*quality* - resample quality; default: 'very_high'
+*quality* - resample quality; default: `'very_high'`
 ```text
     'quick'     - quick cubic interpolation
     'low'       - low quality
@@ -34,7 +34,7 @@ ares.Resample(clip: vs.AudioNode,
     'max'       - maximum quality
 ```
 
-*overflow* - sample overflow handling; default: 'error'
+*overflow* - sample overflow handling; default: `'error'`
 ```text
     'error'      - raise an error (default)
     'clip'       - clip overflowing samples (all types)
@@ -44,7 +44,7 @@ ares.Resample(clip: vs.AudioNode,
                    raise an error if output sample type is not float
 ```
 
-To properly handle overflows the clip should be converted to a float sample type ('f32'), if not already.
+To properly handle overflows the clip should be converted to a float sample type (`'f32'`), if not already.
 
 ⚠️ Overflowing samples of integer sample types (output) are always clipped (disruptive), or they raise an error
 
@@ -52,7 +52,7 @@ Use `overflow='keep_float'` for float output sample types to leave overflowing s
 Then call a scaling function like `std.AudioGain` that scales the peak sample value below or to equal 1.0 (see [Example 3](#example-3))
 
 
-*overflow_log* - sample overflow logging; default: 'once'
+*overflow_log* - sample overflow logging; default: `'once'`
 ```text
     'all'  - log all sample overflows (not recommended, this can be a lot)
     'once' - log only the first sample overflow (default)
@@ -122,7 +122,7 @@ The distributed binaries of this plugin statically link to `soxr` for performanc
 ## Build from source
 To build the plugin, you’ll need CMake and a C++20-compatible compiler. OpenMP support is optional.
 
-Run CMake to configure your preferred build system, then build the project. This process will automatically download and build the `soxr` dependency along with the plugin.
+Run CMake to configure your preferred build system, then build the project. This process will automatically download and build the `soxr` library along with the plugin.
 
 **Note:** You don’t need to download or build `soxr` yourself. However, if you prefer to use a local or customized version of `soxr`, you can provide its source path during configuration (see options below).
 
@@ -137,7 +137,7 @@ cmake -G Ninja -B ./build-ninja -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Releas
 ninja -C ./build-ninja
 ```
 
-Custom options for cmake:
+Custom options for CMake:
 ```text
 -DSOXR_SOURCE_DIR=<PATH>     Use a custom soxr source directory
                              (must contain CMakeLists.txt)
