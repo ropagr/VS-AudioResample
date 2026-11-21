@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2012-2021 Fredrik Mellbin
+* Copyright (c) 2012-2026 Fredrik Mellbin
 *
 * This file is part of VapourSynth.
 *
@@ -26,7 +26,11 @@
 
 #define VS_MAKE_VERSION(major, minor) (((major) << 16) | (minor))
 #define VAPOURSYNTH_API_MAJOR 4
-#if defined(VS_USE_LATEST_API) || defined(VS_USE_API_41)
+#if defined(VS_USE_LATEST_API) || defined(VS_USE_API_43)
+#define VAPOURSYNTH_API_MINOR 3
+#elif defined(VS_USE_API_42)
+#define VAPOURSYNTH_API_MINOR 2
+#elif defined(VS_USE_API_41)
 #define VAPOURSYNTH_API_MINOR 1
 #else
 #define VAPOURSYNTH_API_MINOR 0
@@ -80,6 +84,7 @@ typedef struct VSLogHandle VSLogHandle;
 typedef struct VSFrameContext VSFrameContext;
 typedef struct VSPLUGINAPI VSPLUGINAPI;
 typedef struct VSAPI VSAPI;
+typedef struct VSVULKANAPI VSVULKANAPI;
 
 typedef enum VSColorFamily {
     cfUndefined = 0,
@@ -93,7 +98,7 @@ typedef enum VSSampleType {
     stFloat = 1
 } VSSampleType;
 
-#define VS_MAKE_VIDEO_ID(colorFamily, sampleType, bitsPerSample, subSamplingW, subSamplingH) ((colorFamily << 28) | (sampleType << 24) | (bitsPerSample << 16) | (subSamplingW << 8) | (subSamplingH << 0))
+#define VS_MAKE_VIDEO_ID(colorFamily, sampleType, bitsPerSample, subSamplingW, subSamplingH) (((colorFamily) << 28) | ((sampleType) << 24) | ((bitsPerSample) << 16) | ((subSamplingW) << 8) | ((subSamplingH) << 0))
 
 typedef enum VSPresetVideoFormat {
     pfNone = 0,
@@ -133,9 +138,20 @@ typedef enum VSPresetVideoFormat {
     pfYUV422P14 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 14, 1, 0),
     pfYUV444P14 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 14, 0, 0),
 
+    pfYUV410P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 2, 2),
+    pfYUV411P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 2, 0),
+    pfYUV440P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 0, 1),
+
     pfYUV420P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 1, 1),
     pfYUV422P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 1, 0),
     pfYUV444P16 = VS_MAKE_VIDEO_ID(cfYUV, stInteger, 16, 0, 0),
+
+    pfYUV410PH = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 16, 2, 2),
+    pfYUV410PS = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 32, 2, 2),
+    pfYUV411PH = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 16, 2, 0),
+    pfYUV411PS = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 32, 2, 0),
+    pfYUV440PH = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 16, 0, 1),
+    pfYUV440PS = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 32, 0, 1),
 
     pfYUV420PH = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 16, 1, 1),
     pfYUV420PS = VS_MAKE_VIDEO_ID(cfYUV, stFloat, 32, 1, 1),
@@ -160,10 +176,20 @@ typedef enum VSPresetVideoFormat {
 
 typedef enum VSFilterMode {
     fmParallel = 0, /* completely parallel execution */
-    fmParallelRequests = 1, /* for filters that are serial in nature but can request one or more frames they need in advance */
+    fmParallelRequests = 1, /* for filters that are single-threaded in nature but can request one or more frames they need in advance */
     fmUnordered = 2, /* for filters that modify their internal state every request like source filters that read a file */
     fmFrameState = 3 /* DO NOT USE UNLESS ABSOLUTELY NECESSARY, for compatibility with external code that can only keep the processing state of a single frame at a time */
 } VSFilterMode;
+
+/* Passed to createVideoFilterEx */
+typedef enum VSFilterFlags {
+    ffGPUOutput = 1 /* the filter returns GPU resident frames */
+} VSFilterFlags;
+
+typedef enum VSNodeResidency {
+    nrCPU = 0,
+    nrGPU = 1
+} VSNodeResidency;
 
 typedef enum VSMediaType {
     mtVideo = 1,
@@ -252,6 +278,16 @@ typedef struct VSCoreInfo {
     int64_t usedFramebufferSize;
 } VSCoreInfo;
 
+typedef struct VSCoreInfo2 {
+    const char *versionString;
+    int coreVersion;
+    int apiVersion;
+    int creationFlags;
+    int numThreads;
+    int64_t maxFramebufferSize;
+    int64_t usedFramebufferSize;
+} VSCoreInfo2;
+
 typedef struct VSVideoInfo {
     VSVideoFormat format;
     int64_t fpsNum;
@@ -285,7 +321,8 @@ typedef enum VSMessageType {
 typedef enum VSCoreCreationFlags {
     ccfEnableGraphInspection = 1,
     ccfDisableAutoLoading = 2,
-    ccfDisableLibraryUnloading = 4
+    ccfDisableLibraryUnloading = 4,
+    ccfEnableFrameRefDebug = 8
 } VSCoreCreationFlags;
 
 typedef enum VSPluginConfigFlags {
@@ -304,7 +341,7 @@ typedef enum VSRequestPattern {
     rpStrictSpatial = 2 /* Always (and only) requests frame n from the input clip when generating output frame n, never requests frames beyond the end of the clip */
 #if VAPOURSYNTH_API_MINOR >= 1   
     ,
-    rpFrameReuseLastOnly = 3 /* Added in API 4.1, This modes is basically identical rpNoFrameReuse except that it hints the last frame may be requested multiple times */
+    rpFrameReuseLastOnly = 3 /* Added in API 4.1, This mode is basically identical to rpNoFrameReuse except that it hints the last frame may be requested multiple times */
 #endif
 } VSRequestPattern;
 
@@ -358,18 +395,18 @@ struct VSAPI {
 
     /* Frame related functions */
     VSFrame *(VS_CC *newVideoFrame)(const VSVideoFormat *format, int width, int height, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT;
-    VSFrame *(VS_CC *newVideoFrame2)(const VSVideoFormat *format, int width, int height, const VSFrame **planeSrc, const int *planes, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT; /* same as newVideoFrame but allows the specified planes to be effectively copied from the source frames */
+    VSFrame *(VS_CC *newVideoFrame2)(const VSVideoFormat *format, int width, int height, const VSFrame **planeSrc, const int *planes, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT; /* same as newVideoFrame but allows the specified planes to be effectively copied from the source frames, can also be used with GPU frames, returns NULL when the non-NULL planeSrc entries do not all have the same residency */
     VSFrame *(VS_CC *newAudioFrame)(const VSAudioFormat *format, int numSamples, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT;
     VSFrame *(VS_CC *newAudioFrame2)(const VSAudioFormat *format, int numSamples, const VSFrame **channelSrc, const int *channels, const VSFrame *propSrc, VSCore *core) VS_NOEXCEPT; /* same as newAudioFrame but allows the specified channels to be effectively copied from the source frames */
     void (VS_CC *freeFrame)(const VSFrame *f) VS_NOEXCEPT;
     const VSFrame *(VS_CC *addFrameRef)(const VSFrame *f) VS_NOEXCEPT;
-    VSFrame *(VS_CC *copyFrame)(const VSFrame *f, VSCore *core) VS_NOEXCEPT;
+    VSFrame *(VS_CC *copyFrame)(const VSFrame *f, VSCore *core) VS_NOEXCEPT; /* Create a copy of a frame with COW semantics for the planes and property set independently, if used on a GPU frame the planes remain read-only */
     const VSMap *(VS_CC *getFramePropertiesRO)(const VSFrame *f) VS_NOEXCEPT;
-    VSMap *(VS_CC *getFramePropertiesRW)(VSFrame *f) VS_NOEXCEPT;
+    VSMap *(VS_CC *getFramePropertiesRW)(VSFrame *f) VS_NOEXCEPT; /* nodes and functions cannot be stored in frame properties: the map setters fail on this map */
 
     ptrdiff_t (VS_CC *getStride)(const VSFrame *f, int plane) VS_NOEXCEPT;
-    const uint8_t *(VS_CC *getReadPtr)(const VSFrame *f, int plane) VS_NOEXCEPT;
-    uint8_t *(VS_CC *getWritePtr)(VSFrame *f, int plane) VS_NOEXCEPT; /* calling this function invalidates previously gotten read pointers to the same frame */
+    const uint8_t *(VS_CC *getReadPtr)(const VSFrame *f, int plane) VS_NOEXCEPT; /* Always NULL on GPU frames */
+    uint8_t *(VS_CC *getWritePtr)(VSFrame *f, int plane) VS_NOEXCEPT; /* Calling this function invalidates previously gotten read pointers to the same frame, always NULL on GPU frames */
 
     const VSVideoFormat *(VS_CC *getVideoFrameFormat)(const VSFrame *f) VS_NOEXCEPT;
     const VSAudioFormat *(VS_CC *getAudioFrameFormat)(const VSFrame *f) VS_NOEXCEPT;
@@ -389,8 +426,8 @@ struct VSAPI {
     /* Frame request and filter getframe functions */
     const VSFrame *(VS_CC *getFrame)(int n, VSNode *node, char *errorMsg, int bufSize) VS_NOEXCEPT; /* only for external applications using the core as a library or for requesting frames in a filter constructor, do not use inside a filter's getframe function */
     void (VS_CC *getFrameAsync)(int n, VSNode *node, VSFrameDoneCallback callback, void *userData) VS_NOEXCEPT; /* only for external applications using the core as a library or for requesting frames in a filter constructor, do not use inside a filter's getframe function */
-    const VSFrame *(VS_CC *getFrameFilter)(int n, VSNode *node, VSFrameContext *frameCtx) VS_NOEXCEPT; /* only use inside a filter's getframe function */
-    void (VS_CC *requestFrameFilter)(int n, VSNode *node, VSFrameContext *frameCtx) VS_NOEXCEPT; /* only use inside a filter's getframe function */
+    const VSFrame *(VS_CC *getFrameFilter)(int n, VSNode *node, VSFrameContext *frameCtx) VS_NOEXCEPT; /* only use inside a filter's getframe function, n is clamped like in requestFrameFilter */
+    void (VS_CC *requestFrameFilter)(int n, VSNode *node, VSFrameContext *frameCtx) VS_NOEXCEPT; /* only use inside a filter's getframe function, n is clamped to the clip so the first and last frame's neighbours can be requested without checking */
     void (VS_CC *releaseFrameEarly)(VSNode *node, int n, VSFrameContext *frameCtx) VS_NOEXCEPT; /* only use inside a filter's getframe function, unless this function is called a requested frame is kept in memory until the end of processing the current frame */
     void (VS_CC *cacheFrame)(const VSFrame *frame, int n, VSFrameContext *frameCtx) VS_NOEXCEPT; /* used to store intermediate frames in cache, useful for filters where random access is slow, must call setLinearFilter on the node before using or the result is undefined  */
     void (VS_CC *setFilterError)(const char *errorMessage, VSFrameContext *frameCtx) VS_NOEXCEPT; /* used to signal errors in the filter getframe function */
@@ -405,7 +442,7 @@ struct VSAPI {
     VSMap *(VS_CC *createMap)(void) VS_NOEXCEPT;
     void (VS_CC *freeMap)(VSMap *map) VS_NOEXCEPT;
     void (VS_CC *clearMap)(VSMap *map) VS_NOEXCEPT;
-    void (VS_CC *copyMap)(const VSMap *src, VSMap *dst) VS_NOEXCEPT; /* copies all values in src to dst, if a key already exists in dst it's replaced */
+    void (VS_CC *copyMap)(const VSMap *src, VSMap *dst) VS_NOEXCEPT; /* copies all values in src to dst, if a key already exists in dst it's replaced; copying a node or function into a frame's property map is a fatal error */
 
     void (VS_CC *mapSetError)(VSMap *map, const char *errorMessage) VS_NOEXCEPT; /* used to signal errors outside filter getframe function */
     const char *(VS_CC *mapGetError)(const VSMap *map) VS_NOEXCEPT; /* used to query errors, returns 0 if no error */
@@ -415,7 +452,7 @@ struct VSAPI {
     int (VS_CC *mapDeleteKey)(VSMap *map, const char *key) VS_NOEXCEPT;
     int (VS_CC *mapNumElements)(const VSMap *map, const char *key) VS_NOEXCEPT; /* returns -1 if a key doesn't exist */
     int (VS_CC *mapGetType)(const VSMap *map, const char *key) VS_NOEXCEPT; /* returns VSPropertyType */
-    int (VS_CC *mapSetEmpty)(VSMap *map, const char *key, int type) VS_NOEXCEPT;
+    int (VS_CC *mapSetEmpty)(VSMap *map, const char *key, int type) VS_NOEXCEPT; /* fails for node and function types on a frame's property map */
 
     int64_t (VS_CC *mapGetInt)(const VSMap *map, const char *key, int index, int *error) VS_NOEXCEPT;
     int (VS_CC *mapGetIntSaturated)(const VSMap *map, const char *key, int index, int *error) VS_NOEXCEPT;
@@ -435,16 +472,16 @@ struct VSAPI {
     int (VS_CC *mapSetData)(VSMap *map, const char *key, const char *data, int size, int type, int append) VS_NOEXCEPT;
 
     VSNode *(VS_CC *mapGetNode)(const VSMap *map, const char *key, int index, int *error) VS_NOEXCEPT;
-    int (VS_CC *mapSetNode)(VSMap *map, const char *key, VSNode *node, int append) VS_NOEXCEPT; /* returns 0 on success */
-    int (VS_CC *mapConsumeNode)(VSMap *map, const char *key, VSNode *node, int append) VS_NOEXCEPT; /* always consumes the reference, even on error */
+    int (VS_CC *mapSetNode)(VSMap *map, const char *key, VSNode *node, int append) VS_NOEXCEPT; /* returns 0 on success; fails on a frame's property map, nodes cannot be stored in frame properties */
+    int (VS_CC *mapConsumeNode)(VSMap *map, const char *key, VSNode *node, int append) VS_NOEXCEPT; /* always consumes the reference, even on error; fails on a frame's property map */
 
     const VSFrame *(VS_CC *mapGetFrame)(const VSMap *map, const char *key, int index, int *error) VS_NOEXCEPT;
     int (VS_CC *mapSetFrame)(VSMap *map, const char *key, const VSFrame *f, int append) VS_NOEXCEPT; /* returns 0 on success */
     int (VS_CC *mapConsumeFrame)(VSMap *map, const char *key, const VSFrame *f, int append) VS_NOEXCEPT; /* always consumes the reference, even on error */
 
     VSFunction *(VS_CC *mapGetFunction)(const VSMap *map, const char *key, int index, int *error) VS_NOEXCEPT;
-    int (VS_CC *mapSetFunction)(VSMap *map, const char *key, VSFunction *func, int append) VS_NOEXCEPT; /* returns 0 on success */
-    int (VS_CC *mapConsumeFunction)(VSMap *map, const char *key, VSFunction *func, int append) VS_NOEXCEPT; /* always consumes the reference, even on error */
+    int (VS_CC *mapSetFunction)(VSMap *map, const char *key, VSFunction *func, int append) VS_NOEXCEPT; /* returns 0 on success; fails on a frame's property map, functions cannot be stored in frame properties */
+    int (VS_CC *mapConsumeFunction)(VSMap *map, const char *key, VSFunction *func, int append) VS_NOEXCEPT; /* always consumes the reference, even on error; fails on a frame's property map */
 
     /* Plugin and plugin function related */
     int (VS_CC *registerFunction)(const char *name, const char *args, const char *returnType, VSPublicFunction argsFunc, void *functionData, VSPlugin *plugin) VS_NOEXCEPT; /* non-zero return value on success  */
@@ -465,7 +502,7 @@ struct VSAPI {
 
     /* Core and information */
     VSCore *(VS_CC *createCore)(int flags) VS_NOEXCEPT; /* flags uses the VSCoreCreationFlags enum */
-    void (VS_CC *freeCore)(VSCore *core) VS_NOEXCEPT; /* only call this function after all node, frame and function references belonging to the core have been freed */
+    void (VS_CC *freeCore)(VSCore *core) VS_NOEXCEPT; /* only call this function after all node, frame and function references belonging to the core have been freed, references that erroneously outlive the core must at least be released one at a time and not concurrently from multiple threads */
     int64_t (VS_CC *setMaxCacheSize)(int64_t bytes, VSCore *core) VS_NOEXCEPT; /* the total cache size at which vapoursynth more aggressively tries to reclaim memory, it is not a hard limit */
     int (VS_CC *setThreadCount)(int threads, VSCore *core) VS_NOEXCEPT; /* setting threads to 0 means automatic detection */
     void (VS_CC *getCoreInfo)(VSCore *core, VSCoreInfo *info) VS_NOEXCEPT;
@@ -473,14 +510,18 @@ struct VSAPI {
 
     /* Message handler */
     void (VS_CC *logMessage)(int msgType, const char *msg, VSCore *core) VS_NOEXCEPT;
-    VSLogHandle *(VS_CC *addLogHandler)(VSLogHandler handler, VSLogHandlerFree free, void *userData, VSCore *core) VS_NOEXCEPT; /* free and userData can be NULL, returns a handle that can be passed to removeLogHandler */
-    int (VS_CC *removeLogHandler)(VSLogHandle *handle, VSCore *core) VS_NOEXCEPT; /* returns non-zero if successfully removed */
+    VSLogHandle *(VS_CC *addLogHandler)(VSLogHandler handler, VSLogHandlerFree free, void *userData, VSCore *core) VS_NOEXCEPT; /* free and userData can be NULL, returns a handle for removeLogHandler; handlers run one at a time in logging order, not necessarily on the logging thread, may call logMessage and add or remove handlers (themselves included) but must never call freeCore or wait for frame requests since they may run on a worker thread */
+    int (VS_CC *removeLogHandler)(VSLogHandle *handle, VSCore *core) VS_NOEXCEPT; /* returns non-zero if removed, once any call of it on another thread has returned and its free function has run; callable from inside the handler, which must then not touch userData afterwards */
     
     /* Added in API 4.1, mostly graph and node inspection, PLEASE DON'T USE INSIDE FILTERS */
 #if VAPOURSYNTH_API_MINOR >= 1
     /* Additional cache management to free memory */
     void (VS_CC *clearNodeCache)(VSNode *node) VS_NOEXCEPT; /* clears the cache of the specified node */
-    void (VS_CC *clearCoreCaches)(VSCore *core) VS_NOEXCEPT; /* clears all caches belonging to the specified core */
+    /* Clears all caches belonging to the specified core. On a core with GPU resident nodes
+       this also reaps what the exec pools retained, drops idle transfer staging and hands
+       every fully idle allocator block back to the driver, so the VRAM is returned to the
+       system rather than only to the core's own free lists. */
+    void (VS_CC *clearCoreCaches)(VSCore *core) VS_NOEXCEPT;
 
     /* Basic node information */
     const char *(VS_CC *getNodeName)(VSNode *node) VS_NOEXCEPT; /* the name passed to create*Filter */
@@ -493,7 +534,23 @@ struct VSAPI {
     void (VS_CC *setCoreNodeTiming)(VSCore *core, int enable) VS_NOEXCEPT; /* non-zero enables filter timing, note that disabling simply stops the counters from incrementing */
     int64_t (VS_CC *getNodeProcessingTime)(VSNode *node, int reset) VS_NOEXCEPT; /* time spent processing frames in nanoseconds, reset sets the counter to 0 again */
     int64_t (VS_CC *getFreedNodeProcessingTime)(VSCore *core, int reset) VS_NOEXCEPT; /* time spent processing frames in nanoseconds in all destroyed nodes, reset sets the counter to 0 again */
+#endif
 
+    /* Added in API 4.2 */
+#if VAPOURSYNTH_API_MINOR >= 2
+    void (VS_CC *getCoreInfo2)(VSCore *core, VSCoreInfo2 *info) VS_NOEXCEPT;
+#endif
+
+    /* Added in API 4.3 */
+#if VAPOURSYNTH_API_MINOR >= 3
+    void (VS_CC *createVideoFilterEx)(VSMap *out, const char *name, const VSVideoInfo *vi, VSFilterGetFrame getFrame, VSFilterFree free, int filterMode, int flags, const VSFilterDependency *dependencies, int numDeps, void *instanceData, VSCore *core) VS_NOEXCEPT; /* same as createVideoFilter plus VSFilterFlags; unknown flags are an error */
+    VSNode *(VS_CC *createVideoFilterEx2)(const char *name, const VSVideoInfo *vi, VSFilterGetFrame getFrame, VSFilterFree free, int filterMode, int flags, const VSFilterDependency *dependencies, int numDeps, void *instanceData, VSCore *core) VS_NOEXCEPT; /* same as createVideoFilter2 plus VSFilterFlags; unknown flags return NULL */
+    const VSVULKANAPI *(VS_CC *getVulkanAPI)(void) VS_NOEXCEPT; /* see VSVulkan4.h; never NULL, it is versioned by the core API and getAPIVersion answers which one you got */
+    int (VS_CC *getNodeResidency)(VSNode *node) VS_NOEXCEPT; /* returns VSNodeResidency; nrGPU when the node was created with ffGPUOutput */
+    int (VS_CC *getFrameResidency)(const VSFrame *frame) VS_NOEXCEPT; /* returns VSNodeResidency */
+#endif
+
+#if VAPOURSYNTH_API_MINOR >= 2
 #if defined(VS_GRAPH_API)
     /* !!! Experimental/expensive graph information, these function require both the major and minor version to match exactly when using them !!!
      * 
@@ -504,7 +561,9 @@ struct VSAPI {
      */
 
     const char *(VS_CC *getNodeCreationFunctionName)(VSNode *node, int level) VS_NOEXCEPT; /* level=0 returns the name of the function that created the filter, specifying a higher level will retrieve the function above that invoked it or NULL if a non-existent level is requested */
-    const VSMap *(VS_CC *getNodeCreationFunctionArguments)(VSNode *node, int level) VS_NOEXCEPT; /* level=0 returns a copy of the arguments passed to the function that created the filter, returns NULL if a non-existent level is requested */
+    const char *(VS_CC *getNodeCreationPluginID)(VSNode *node, int level) VS_NOEXCEPT; /* the identifier of the plugin the function at the same level belongs to, NULL if a non-existent level is requested */
+    const char *(VS_CC *getNodeCreationPluginNS)(VSNode *node, int level) VS_NOEXCEPT; /* the namespace of the plugin the function at the same level belongs to, NULL if a non-existent level is requested */
+    const VSMap *(VS_CC *getNodeCreationFunctionArguments)(VSNode *node, int level) VS_NOEXCEPT; /* level=0 returns a copy of the arguments passed to the function that created the filter, owned by the node and not to be freed, returns NULL if a non-existent level is requested */
 #endif
 #endif
 };

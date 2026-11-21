@@ -21,10 +21,22 @@
 #ifndef VSCONSTANTS4_H
 #define VSCONSTANTS4_H
 
+/* _Range replaced _ColorRange in API 4.2, so every API version from there on needs listing here. */
+#if defined(VS_USE_LATEST_API) || defined(VS_USE_API_43) || defined(VS_USE_API_42)
+
+typedef enum VSRange {
+	VSC_RANGE_FULL = 1,
+	VSC_RANGE_LIMITED = 0
+} VSRange;
+
+#else
+
 typedef enum VSColorRange {
 	VSC_RANGE_FULL = 0,
 	VSC_RANGE_LIMITED = 1
 } VSColorRange;
+
+#endif
 
 typedef enum VSChromaLocation {
 	VSC_CHROMA_LEFT = 0,

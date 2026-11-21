@@ -159,6 +159,12 @@ target_compile_options(AudioResample
 )
 
 
+target_compile_definitions(AudioResample
+    PRIVATE
+        VS_USE_LATEST_API
+)
+
+
 target_link_options(AudioResample
     PRIVATE
     # Windows + CXX + GCC/Clang(GCC)
